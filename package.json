@@ -1,0 +1,27 @@
+{
+  "name": "website-mcp",
+  "version": "0.1.0",
+  "description": "Turn a website into a deterministic tool: explore once with a model, then run the saved script with no model.",
+  "type": "module",
+  "bin": {
+    "website-mcp": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test \"test/unit/*.test.mjs\" \"test/browser/*.test.mjs\"",
+    "serve": "node dist/cli.js serve"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "ajv": "8.20.0",
+    "playwright": "1.65.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  }
+}

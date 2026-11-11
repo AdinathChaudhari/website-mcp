@@ -1,0 +1,18 @@
+{
+  "name": "fixture_search",
+  "description": "Search the fixture site and return matching item titles.",
+  "effect": "read",
+  "kind": "browser",
+  "site": { "allowedOrigins": ["__ORIGIN__"] },
+  "input": {
+    "type": "object",
+    "properties": { "q": { "type": "string", "minLength": 1 } },
+    "required": ["q"],
+    "additionalProperties": false
+  },
+  "output": {
+    "type": "object",
+    "properties": { "items": { "type": "array", "items": { "type": "string" } } },
+    "required": ["items"]
+  }
+}

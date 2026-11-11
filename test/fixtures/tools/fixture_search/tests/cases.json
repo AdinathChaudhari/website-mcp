@@ -1,0 +1,8 @@
+[
+  { "name": "tag_alpha", "purpose": "tag alpha returns items", "input": { "q": "alpha" }, "expect": "result" },
+  { "name": "tag_beta", "purpose": "tag beta returns items", "input": { "q": "beta" }, "expect": "result" },
+  { "name": "tag_gamma", "purpose": "tag gamma returns items", "input": { "q": "gamma" }, "expect": "result" },
+  { "name": "no_match", "purpose": "the empty state yields an empty list", "input": { "q": "zzz-nothing" }, "expect": "empty" },
+  { "name": "blank_query", "purpose": "a blank query is rejected by the tool", "input": { "q": "  " }, "expect": "invalid_input" },
+  { "name": "empty_string", "purpose": "the input schema rejects an empty string", "input": { "q": "" }, "expect": "invalid_input" }
+]

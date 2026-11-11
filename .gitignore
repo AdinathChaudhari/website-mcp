@@ -1,0 +1,20 @@
+# Private project records — never committed (see CLAUDE.md)
+DECISIONS.md
+CONVERSATIONS.md
+
+# Build / deps
+node_modules/
+dist/
+*.tgz
+coverage/
+
+# Local state (tools, drafts, captures, bridge socket live in ~/.website-mcp, never here)
+.website-mcp/
+*.log
+.DS_Store
+.env
+.env.*
+
+# Private planning + run logs (personal paths/context) — D-017, D-019
+docs/01-planning/
+docs/runs/
