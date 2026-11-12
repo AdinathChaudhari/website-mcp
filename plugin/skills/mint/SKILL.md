@@ -20,6 +20,8 @@ The tools below are the `website-mcp` MCP server's: `guide`, `open`, `snapshot`,
 Ask the user "browser or page?" unless it is obvious. One rule: **signed-in or bot-sensitive means page; public and
 unattended means browser.** A browser tool gets a fresh Playwright browser (the loop below). A page tool runs in a tab
 the user already has open, with their real session: read `guide` topic `page-tools` and follow the page loop at the end.
+If the site is bot-sensitive (accounts get locked for automation), also read `hard-targets`: own account only, read only what
+the open tab shows, `hardTarget: true` with `minIntervalSec` >= 60, stop on any `CHALLENGE`, and prefer the site's own export.
 
 ## Loop
 

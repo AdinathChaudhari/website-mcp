@@ -17,9 +17,10 @@ export function pickTab(tabs) {
 
 export function composeCode(source, input, helpersText, signin) {
   const gate = signin ? `if(!document.querySelector(${JSON.stringify(signin.marker)}))return {ok:false,signedOut:true};` : "";
-  return `(async()=>{try{${gate}const wm=${helpersText};const fn=(${source});` +
-    `return {ok:true,value:await fn({input:${JSON.stringify(input ?? null)},wm})};}` +
-    `catch(e){return {ok:false,message:String((e&&e.message)||e)};}})()`;
+  // A challenge is checked before the tool (it never runs on one), after it (the result is discarded) and when it throws; ahead of the sign-in marker.
+  return `(async()=>{const wm=${helpersText};const ch=()=>{try{const c=wm.challenge();return c?{ok:false,challenge:c}:null}catch(e){return null}};` +
+    `try{const c=ch();if(c)return c;${gate}const v=await (${source})({input:${JSON.stringify(input ?? null)},wm});return ch()||{ok:true,value:v};}` +
+    `catch(e){return ch()||{ok:false,message:String((e&&e.message)||e)};}})()`;
 }
 
 export const EXPLORE_MS = 15 * 60 * 1000;
@@ -54,6 +55,7 @@ const execIn = (chrome, tabId, code, world, timeoutMs, errCode = "SCRIPT_ERROR")
     .then((res) => {
       const r = res?.[0]?.result;
       if (res?.[0]?.error || !r) return err(errCode, String(res?.[0]?.error ?? "script returned nothing"));
+      if (r.challenge) return err("CHALLENGE", `The page shows a challenge or block (${r.challenge}); the run stopped and will not retry`);
       if (r.signedOut) return err("SIGNED_OUT", "signed-in marker not found in the tab");
       return r.ok ? { ok: true, value: r.value } : err(errCode, r.message);
     })
@@ -81,6 +83,9 @@ async function gate(chrome) {
     return err("USER_SCRIPTS_OFF", "Enable 'Allow User Scripts' on the extension's details page (chrome://extensions), then retry");
 }
 
+/** True when the tab's window has focus (an active tab in a background window is not visible). Unreadable = no. */
+const focused = (chrome, tab) => chrome.windows.get(tab.windowId).then((w) => !!w.focused, () => false);
+
 /** Handle one `run` request; returns {ok:true,value} or {ok:false,error}. Never creates or navigates tabs. */
 export async function handleRun(chrome, msg, helpersText) {
   const bad = await gate(chrome);
@@ -104,14 +109,14 @@ export async function handleRun(chrome, msg, helpersText) {
   const tabs = (await chrome.tabs.query({ url: granted.map((o) => `${o}/*`) })).filter((t) => t.url && matchesPath(msg.urlPattern, t.url));
   const tab = pickTab(tabs);
   if (!tab) return err("NO_TAB", `No open tab matches ${granted[0]}${msg.urlPattern ?? "/*"}; open it in your browser (${granted[0]}) and retry`);
-  if (msg.needsVisible && !tab.active) return err("TAB_HIDDEN", "This tool needs the tab visible; switch to it and retry");
+  if (msg.needsVisible && !(tab.active && (await focused(chrome, tab)))) return err("TAB_HIDDEN", "This tool needs the tab visible; switch to it and retry");
   const r = await execIn(chrome, tab.id, composeCode(msg.source, msg.input, helpersText, msg.signin), msg.world ?? "USER_SCRIPT", msg.timeoutMs);
   if (r.error?.code === "SIGNED_OUT" && msg.signin) r.error.message = `signed-in marker not found; sign in at ${msg.signin.loginUrl}`;
   return r;
 }
 
 /** snapshot / explore / capture: only on a granted tab whose explore window is open. */
-export async function handleExplore(chrome, msg) {
+export async function handleExplore(chrome, msg, helpersText) {
   const bad = await gate(chrome);
   if (bad) return bad;
   const tab = await chrome.tabs.get(msg.tabId).catch(() => null);
@@ -120,7 +125,9 @@ export async function handleExplore(chrome, msg) {
   if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) return err("SITE_NOT_GRANTED", `Click 'Allow this site' in the website-mcp popup on ${origin}`);
   if (!(await exploreOpen(chrome, origin))) return err("EXPLORE_OFF", `The explore window for ${origin} is closed; open it in the popup (it lasts 15 minutes)`);
   const body = msg.type === "snapshot" ? SNAPSHOT_JS : msg.type === "capture" ? `({url:location.href,title:document.title,html:document.documentElement.outerHTML})` : `(async()=>{${msg.code}\n})()`;
-  const code = `(async()=>{try{const v=await ${body};return {ok:true,value:JSON.stringify(v===undefined?null:v)};}catch(e){return {ok:false,message:String((e&&e.message)||e)};}})()`;
+  // Same challenge guard as a run: nothing runs on a checkpoint page, and a result or error from one is replaced by CHALLENGE.
+  const code = `(async()=>{const wm=${helpersText};const ch=()=>{try{const c=wm.challenge();return c?{ok:false,challenge:c}:null}catch(e){return null}};` +
+    `const c0=ch();if(c0)return c0;try{const v=await ${body};return ch()||{ok:true,value:JSON.stringify(v===undefined?null:v)};}catch(e){return ch()||{ok:false,message:String((e&&e.message)||e)};}})()`;
   const r = await execIn(chrome, tab.id, code, "USER_SCRIPT", msg.type === "explore" ? msg.timeoutMs : 15000);
   if (!r.ok) return r;
   if (r.value.length > CAPS[msg.type]) return err("SCRIPT_ERROR", `${msg.type} result is ${r.value.length} chars, over the ${CAPS[msg.type]} cap; narrow it`);

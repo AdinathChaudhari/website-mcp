@@ -32,6 +32,7 @@ function route(url) {
       : `<h1>Results for ${esc(q)}</h1><p class="empty">No results found.</p>`;
     return [200, layout("Search", body)];
   }
+  if (p === "/checkpoint") return [200, layout("Security check", `<h1>Let's verify you are human</h1><iframe src="https://captcha.invalid/frame" title="captcha"></iframe>`)];
   const m = /^\/item\/(\d+)$/.exec(p);
   if (m) {
     const it = ITEMS.find((x) => x.id === Number(m[1]));

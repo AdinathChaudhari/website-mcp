@@ -35,6 +35,8 @@ export const BRIDGE_ERROR_CODES = [
   "SIGNED_OUT",
   /** The popup's explore window for this site is closed (it turns itself off after 15 minutes). */
   "EXPLORE_OFF",
+  /** The page showed a captcha, a checkpoint or a block. The run stops at once and is never retried. */
+  "CHALLENGE",
 ] as const;
 export type BridgeErrorCode = (typeof BRIDGE_ERROR_CODES)[number];
 

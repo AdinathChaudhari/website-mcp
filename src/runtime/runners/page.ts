@@ -76,5 +76,12 @@ export function explain(e: BridgeError, name: string, version: number | undefine
   if (e.code === "SIGNED_OUT") {
     return new BridgeError("SIGNED_OUT", `${name}: you are signed out in that tab. Sign in${loginUrl ? ` at ${loginUrl}` : ""}, then run it again.`, { ...(loginUrl ? { loginUrl } : {}) });
   }
+  if (e.code === "CHALLENGE") {
+    return new BridgeError(
+      "CHALLENGE",
+      `${name}: the page showed a challenge or block (${e.message.replace(/^.*\((.*)\); the run stopped.*$/s, "$1")}). The run stopped and nothing was retried. Open that tab, deal with it yourself, wait a good while, and only then run again.`,
+      { toolName: name },
+    );
+  }
   return e;
 }

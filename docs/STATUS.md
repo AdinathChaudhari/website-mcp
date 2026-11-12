@@ -1,13 +1,13 @@
 # website-mcp — status and resume guide
 
-**As of 2026-11-12: Phases 1–4 of 8 done; page tools verified in real Chrome. Phase 5 next.**
+**As of 2026-11-12: Phases 1–5 of 8 done (Phase 5 live check pending in the user's Chrome). Phase 6 next (gated).**
 Plan: `docs/01-planning/PLAN v2.md` (private, git-ignored). Phases 1–2 committed (4df108d); Phase 3 uncommitted.
 
 ## Resume in 3 steps
 
-1. `cd` into the repo and run `npm test` → expect `tests 97 / pass 97`.
+1. `cd` into the repo and run `npm test` → expect `tests 150 / pass 150`.
 2. Run `node dist/cli.js test quotes_by_tag` → expect `4/4 passed`.
-3. Start Phase 5 (fix popup false-'connected' + uninstall report bugs first) with the same workflow shape as Phases 1–2
+3. Run `docs/runs/06-phase-5/USER-CHECKLIST.md` in Chrome, then decide Phase 6 go/no-go with the same workflow shape as Phases 1–2
    (Haiku extract → Sonnet build/prove/fix → one Opus verifier → Haiku recorder).
 
 ## What works today

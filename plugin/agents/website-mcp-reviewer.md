@@ -46,6 +46,11 @@ For each item decide pass, warn or block.
 9. **Schemas and description.** `input` and `output` describe what the script returns; the description tells a
    calling model what the tool reads, what the inputs mean, and what an empty result means.
 
+10. **Hard target (only when `hardTarget` is true or the site is bot-sensitive).** `hardTarget: true` and
+    `minIntervalSec` >= 60 are set; the tool reads only what the open page shows (no navigation, clicks, link
+    following, extra scrolling beyond `wm.scrollToLoad`, or reading other people's pages); there are no retries,
+    loops or polling; it never tries to get past a challenge. Any of these is a block.
+
 Use Grep to confirm claims instead of assuming: search `tool.mjs` for `http`, `fetch`, `click(`, `submit`,
 `password`, `token`, `cookie`, `@`, and long digit runs.
 

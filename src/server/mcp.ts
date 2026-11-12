@@ -114,7 +114,7 @@ const fixedTools = [
   {
     name: "guide",
     description:
-      "Minting guidance. topic is one of the authoring guides (core, testing, pagination, search, publication, page-tools); read core first, and the others when the task involves them. An unknown or missing topic returns the list of topics.",
+      "Minting guidance. topic is one of the authoring guides (core, testing, pagination, search, publication, page-tools, hard-targets); read core first, and the others when the task involves them. An unknown or missing topic returns the list of topics.",
     inputSchema: obj({ topic: { type: "string" } }),
   },
   {

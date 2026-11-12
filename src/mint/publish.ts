@@ -12,7 +12,7 @@ import { LIVE_CAP, LIVE_CAP_HARD } from "./live.js";
 import { MIN_CASES, MIN_PASS_RATE, caseMode, caseProblems, hashCases, hashSource, readCases, runCases, type LastRun } from "./tests.js";
 
 export interface Reason {
-  code: "no_draft" | "too_few_cases" | "bad_cases" | "pass_rate" | "bad_manifest" | "bad_schema" | "bad_source" | "origin" | "secret" | "review" | "page_source" | "signin" | "review_main" | "live_proof";
+  code: "no_draft" | "too_few_cases" | "bad_cases" | "pass_rate" | "bad_manifest" | "bad_schema" | "bad_source" | "origin" | "secret" | "review" | "page_source" | "signin" | "review_main" | "live_proof" | "hard_target_interval";
   message: string;
   /** Failing case names, for pass_rate refusals. */
   cases?: string[];
@@ -107,6 +107,9 @@ export function staticChecks(dir: string): Reason[] {
       reasons.push({ code: "bad_manifest", message: (e as Error).message });
     }
     if (m.hardTarget !== undefined && typeof m.hardTarget !== "boolean") reasons.push({ code: "bad_manifest", message: "hardTarget must be true or false" });
+    if (m.hardTarget === true && !(typeof m.minIntervalSec === "number" && m.minIntervalSec >= 60)) {
+      reasons.push({ code: "hard_target_interval", message: "a hardTarget tool needs minIntervalSec of at least 60 in tool.json (one run per minute at most), so it cannot be run in a loop" });
+    }
   } else if (m.page !== undefined || m.hardTarget !== undefined) {
     reasons.push({ code: "bad_manifest", message: '"page" and "hardTarget" are for kind "page" only' });
   }

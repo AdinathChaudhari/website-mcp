@@ -34,11 +34,13 @@ function fakeExtension() {
       const ok = (v) => send(proto.okResult(m.id, v));
       const err = (code, msg) => send(proto.errResult(m.id, code, msg));
       if (m.type === "tabs") ok([{ id: 5, url: `${O}/`, title: "Quotes", active: true, granted: true, explore: state.explore }, { id: 9, url: "https://other.test/", title: "Other", active: false, granted: false, explore: false }]);
+      else if (state.exploreChallenge && ["snapshot", "explore", "capture"].includes(m.type)) err("CHALLENGE", "The page shows a challenge or block (captcha on the page); the run stopped and will not retry");
       else if (m.type === "snapshot") ok("- row: " + "x".repeat(40000));
       else if (m.type === "explore") ok({ n: 3 });
       else if (m.type === "capture") ok({ url: `${O}/`, title: "Quotes", html: readFileSync(join(CAPS, state.captureFile), "utf8") });
       else if (m.type === "run") {
         if (m.draft && !state.explore) return err("EXPLORE_OFF", "explore window closed");
+        if (state.challenge) return err("CHALLENGE", "The page shows a challenge or block (captcha on the page); the run stopped and will not retry");
         if (!m.draft && !approved.has(m.hash)) return err("NEEDS_APPROVAL", "not approved");
         ok({ quotes: [{ text: "t", author: "a" }] });
       }
@@ -196,4 +198,59 @@ test("the gate refuses a page tool that fetches, closes over a helper, or asks f
   await mcp.call("submit_review", { name: "main_page", verdict: "allow", findings: [{ severity: "warn", message: "world MAIN is needed because the data lives on a page-global" }], sourceHash: m.v.sourceHash });
   const pub = await mcp.call("publish_tool", { name: "main_page" });
   assert.equal(pub.isError, false, JSON.stringify(pub.v));
+});
+
+test("minIntervalSec: a published tool refuses a run that comes too soon (TOO_SOON), before the tab is touched", async () => {
+  const { cpSync } = await import("node:fs");
+  const dir = join(home, "tools", "paced_page");
+  cpSync(join(FIXTURE_TOOLS, "quotes_page"), dir, { recursive: true });
+  writeFileSync(join(dir, "tool.json"), JSON.stringify({ ...fixtureTool(), name: "paced_page", version: 1, minIntervalSec: 3600 }));
+  const runs = () => seen.filter((m) => m.type === "run" && m.toolName === "paced_page").length;
+  const first = await mcp.call("run_tool", { name: "paced_page", input: {} });
+  assert.equal(first.v.error?.code, "NEEDS_APPROVAL"); // reached the tab: approval is the extension's gate
+  approved.add(seen.filter((m) => m.type === "run").at(-1).hash);
+  assert.equal((await mcp.call("run_tool", { name: "paced_page", input: {} })).isError, false);
+  assert.equal(runs(), 2);
+  const again = await mcp.call("run_tool", { name: "paced_page", input: {} });
+  assert.equal(again.v.error.code, "TOO_SOON");
+  assert.match(again.v.error.message, /Try again in \d+s/);
+  assert.equal(runs(), 2, "the second run never reached the extension");
+});
+
+test("CHALLENGE stops the mint: the run fails, nothing retries, and no further live run touches the site", async () => {
+  const tool = { ...fixtureTool(), hardTarget: true, minIntervalSec: 60 };
+  await mcp.call("save_tool", { name: "chal_page", tool, source: fixtureSource });
+  const runs = () => seen.filter((m) => m.type === "run" && m.toolName === "chal_page").length;
+  state.challenge = true;
+  try {
+    const first = await mcp.call("run_tool", { name: "chal_page", input: {}, draft: true });
+    assert.equal(first.v.error.code, "CHALLENGE");
+    assert.match(first.v.error.message, /nothing was retried/);
+    assert.equal(runs(), 1, "one attempt, no retry");
+    state.challenge = false; // even if the page now looks fine, the mint is stopped
+    const second = await mcp.call("run_tool", { name: "chal_page", input: {}, draft: true });
+    assert.equal(second.v.error.code, "CHALLENGE");
+    assert.match(second.v.error.message, /fresh mint/);
+    assert.equal(runs(), 1, "the second live run was refused before touching the site");
+    const t = await mcp.call("test_tool", { name: "chal_page" });
+    assert.equal(runs(), 1);
+    assert.ok(t);
+  } finally {
+    state.challenge = false;
+  }
+});
+
+test("a CHALLENGE on the explore path stops further exploring of that site this session, and marks the draft", async () => {
+  state.explore = true;
+  state.exploreChallenge = true;
+  const sent = () => seen.filter((m) => ["snapshot", "explore", "capture"].includes(m.type)).length;
+  const before = sent();
+  const first = await mcp.call("page_capture", { tabId: 5, name: "chal_cap" });
+  assert.equal(first.v.error.code, "CHALLENGE");
+  assert.equal(sent(), before + 1);
+  state.exploreChallenge = false; // page looks fine now: still refused, nothing sent
+  const second = await mcp.call("page_explore", { tabId: 5, code: "return 1" });
+  assert.equal(second.v.error.code, "CHALLENGE");
+  assert.equal(sent(), before + 1, "refused before anything was sent");
+  assert.ok(existsSync(join(home, "drafts", "chal_cap", "challenge.json")), "the draft is marked challenged");
 });

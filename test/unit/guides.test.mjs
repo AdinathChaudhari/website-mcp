@@ -8,7 +8,7 @@ const { guideTopics, readGuide } = await import("../../dist/server/guides.js");
 const home = tempHome("wm-unit-guides-");
 after(() => rm(home));
 
-const TOPICS = ["core", "page-tools", "pagination", "publication", "search", "testing"];
+const TOPICS = ["core", "hard-targets", "page-tools", "pagination", "publication", "search", "testing"];
 
 test("topics are the authoring/*.md file names, README excluded", () => {
   assert.deepEqual(guideTopics(), TOPICS);

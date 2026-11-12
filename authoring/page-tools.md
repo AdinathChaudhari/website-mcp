@@ -38,7 +38,20 @@ export default async ({ input, wm }) => {
 ```
 
 `world` stays `USER_SCRIPT` (isolated from the page's own scripts). `MAIN` runs inside the page's own world; it needs
-a reviewer finding that mentions MAIN and why. `hardTarget: true` marks a bot-sensitive site and halves the live budget.
+a reviewer finding that mentions MAIN and why. `hardTarget: true` marks a bot-sensitive site: it halves the live budget
+and needs `minIntervalSec` >= 60 to publish (read `hard-targets`).
+
+`minIntervalSec` is enforced when the tool runs (published, or a draft in the user's tab): a run sooner than that after
+the last one fails with `TOO_SOON` and the seconds left, without touching the site. Offline capture runs are exempt.
+It is not part of the approval hash (the extension never sees it).
+
+`needsVisible: true` makes the extension refuse with `TAB_HIDDEN` unless the tab is the active tab of a focused window.
+
+Every run is checked for a challenge page (captcha, checkpoint path, "verify you are human", 429-style block) before
+the tool, after it, and when it throws; any hit is `CHALLENGE`, the run stops and is not retried, and a mint cannot spend
+more live runs. `wm.challenge()` returns the reason or `null`. `wm.scrollToLoad({ maxSteps = 10, pauseMs = 800 })`
+scrolls in human-paced, jittered steps (at most 50, pause 200 ms to 5 s) until nothing new loads; keep the tool's
+`timeoutSec` above steps x pause. `wm` helpers are NOT part of the approval hash, so a helper update does not re-prompt.
 
 `signin.json` (optional, pass it as `signin` to save_tool): `{ "marker": "<css selector present only when signed in>",
 "loginUrl": "https://example.com/login" }`. It is checked in the tab before the script runs; absent marker returns

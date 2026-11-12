@@ -93,3 +93,13 @@ test("network is really blocked: a same-origin fetch to a LIVE server is aborted
     await site.close();
   }
 });
+
+test("a capture of a challenge page is CHALLENGE, not a selector error; a clean capture is unaffected", async () => {
+  const dir = join(home, "drafts", "probe_page", "captures");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "8.html"), '<html><head><title>Security check</title></head><body><h1>Let\'s verify you are human</h1><iframe src="https://captcha.test/frame"></iframe></body></html>');
+  writeFileSync(join(dir, "8.json"), JSON.stringify({ url: `${O}/checkpoint/start` }));
+  installFixtureTool(home, "quotes_page", O, "drafts", { as: "probe_page", sourceTransform: () => `export default async ({ wm }) => ({ quotes: [{ text: wm.text(".nope").toUpperCase(), author: "x" }] });` });
+  await assert.rejects(runTool("probe_page", {}, { draft: true, capture: join(dir, "8.html") }), (e) => e.code === "CHALLENGE" && /challenge or block/.test(e.message));
+  assert.equal((await runTool("quotes_page", {}, { draft: true, capture: CAP1 })).quotes.length, 3);
+});

@@ -17,7 +17,9 @@ export type ErrorCode =
   | "PROTOCOL_MISMATCH"
   | "NEEDS_APPROVAL"
   | "SIGNED_OUT"
-  | "EXPLORE_OFF";
+  | "EXPLORE_OFF"
+  | "CHALLENGE"
+  | "TOO_SOON";
 
 export class WebsiteMcpError extends Error {
   readonly code: ErrorCode;
@@ -67,6 +69,13 @@ export class PublishRefused extends WebsiteMcpError {
 export class LiveCapReached extends WebsiteMcpError {
   constructor(message: string) {
     super("live_cap", message);
+  }
+}
+
+/** minIntervalSec: the tool ran too recently. Refused before anything touches the site. */
+export class TooSoon extends WebsiteMcpError {
+  constructor(message: string, details: { remainingSec: number; minIntervalSec: number }) {
+    super("TOO_SOON", message, details);
   }
 }
 
