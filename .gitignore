@@ -18,3 +18,9 @@ coverage/
 # Private planning + run logs (personal paths/context) — D-017, D-019
 docs/01-planning/
 docs/runs/
+
+# Private content-scan denylist (see content-denylist.example)
+.content-denylist
+
+# Internal resume log (cites private plan/decisions); kept locally, not published
+docs/STATUS.md

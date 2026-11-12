@@ -48,3 +48,20 @@ A write tool changes something on a site. The boundary, outermost first:
 6. **Honest results.** Every write result carries `committed` and `possibleCommit`. A run killed or failed inside a commit
    reports `possibleCommit: true`. The runtime never retries a write, and a write that reached the page keeps its interval slot.
 7. **No hard targets.** Write tools are refused on a `hardTarget` site.
+
+## Hard targets and site terms
+
+A hard target is a site that actively resists automation or is sensitive to unusual traffic. The safeguards in item 5 above (visible tab, minimum interval, challenge stop) are there to keep a tool from behaving like a bot loop. They are not a way around a site's defences, and a challenge stops the run instead of being solved.
+
+Terms of service: many sites forbid automated access or scraping. This project does not decide that for you. A tool you mint runs as you, on your account, so you are responsible for whether using it is allowed. Prefer an official API where one exists, keep intervals long, and do not point a tool at a site whose terms forbid it. Nothing here grants permission to access anything.
+
+## What is and is not a boundary
+
+| Boundary (enforced by something the model cannot operate) | Not a boundary (best effort or convention) |
+|---|---|
+| Per-site grant and per-version approval, clicked by the user in the extension popup | The static scan in `page-gate.ts` |
+| The approval hash, computed in the extension | `mint_effect` on `explore` |
+| Network CSP on the USER_SCRIPT world (fetch-style requests only) | The reviewer's verdict |
+| Origin route guard in the browser runner | The off-origin URL text scan |
+| The user pressing the final Save on a write | Guides telling the minter to behave |
+| Runtime `minIntervalSec`, refusing writes on hard targets | The user's own interval record against someone who edits it |

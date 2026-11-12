@@ -2,19 +2,51 @@
   "name": "website-mcp",
   "version": "0.1.0",
   "description": "Turn a website into a deterministic tool: explore once with a model, then run the saved script with no model.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "playwright",
+    "browser-automation",
+    "web-automation",
+    "chrome-extension",
+    "deterministic",
+    "tools"
+  ],
   "type": "module",
   "bin": {
     "website-mcp": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "authoring",
+    "extension",
+    "plugin",
+    "docs/safety.md",
+    "docs/model-seam.md",
+    "docs/prior-art.md",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test \"test/unit/*.test.mjs\" \"test/browser/*.test.mjs\" \"test/extension/*.test.mjs\"",
+    "test": "npm run build && node tools/content-scan.mjs && node --test \"test/unit/*.test.mjs\" \"test/browser/*.test.mjs\" \"test/extension/*.test.mjs\"",
+    "prepack": "npm test",
     "serve": "node dist/cli.js serve"
   },
   "engines": {
     "node": ">=22"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "TODO: set to the public repository URL"
+  },
+  "homepage": "TODO: set to the public repository URL",
+  "bugs": {
+    "url": "TODO: set to the public issue tracker URL"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
     "ajv": "8.20.0",

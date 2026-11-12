@@ -1,6 +1,6 @@
 # Browser layer options
 
-Assessed 2026-11-11 (planner v1 + v2). Summary of `docs/01-planning/PLAN v2.md` §3.
+Assessed 2026-11-11 (planner v1 + v2). Summary of the planning notes.
 
 | Option | Good for | Why not the primary engine |
 |---|---|---|
