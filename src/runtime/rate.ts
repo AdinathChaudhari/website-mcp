@@ -57,13 +57,14 @@ export function reserveInterval(key: string, minIntervalSec: number | undefined,
     });
 }
 
-/** Cross-process mutex (O_EXCL lock file, short sync retry; a lock older than 5s is treated as stale). Runs fn under it. */
+/** Cross-process mutex (O_EXCL lock file, sync retry for up to 3s; a lock older than 5s is treated as stale, so giving up never deletes a live holder's lock). Runs fn under it. */
 function locked<T>(fn: () => T): T {
   mkdirSync(join(homeDir(), "state"), { recursive: true, mode: 0o700 });
   const lock = `${file()}.lock`;
   const sleeper = new Int32Array(new SharedArrayBuffer(4));
   let acquired = false;
-  for (let i = 0; ; i++) {
+  const giveUpAt = Date.now() + 3000; // must stay well below the 5s stale threshold
+  for (;;) {
     try {
       closeSync(openSync(lock, "wx", 0o600));
       acquired = true;
@@ -75,7 +76,7 @@ function locked<T>(fn: () => T): T {
       } catch {
         /* released meanwhile */
       }
-      if (i > 400) break; // give up waiting: best-effort guard, never wedge a run
+      if (Date.now() > giveUpAt) break; // give up waiting: best-effort guard, never wedge a run
       Atomics.wait(sleeper, 0, 0, 10);
     }
   }

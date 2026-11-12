@@ -100,7 +100,7 @@ test("F3: giving up on a stalled lock does not delete the other holder's lock fi
   const lock = join(home, "state", "last-run.json.lock");
   writeFileSync(lock, "");
   try {
-    reserveInterval("f3tool", 60); // waits ~4s, then proceeds without the lock
+    reserveInterval("f3tool", 60); // waits ~3s, then proceeds without the lock
     assert.equal(existsSync(lock), true, "the lock belongs to someone else and must survive");
   } finally {
     rm(lock);
