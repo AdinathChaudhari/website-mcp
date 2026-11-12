@@ -36,7 +36,7 @@ banned for it). Set `"hardTarget": true` in tool.json. These rules are stricter 
 ## What the safeguards are (and are not)
 
 - `CHALLENGE` is a built-in check on the open page, before the tool, after it, and when it throws. It looks at the
-  path (whole segments `checkpoint`, `challenge`, `captcha`, `security-check`, `authwall`, `sorry`), captcha frames
+  path (whole segments `checkpoint`, `captcha`, `security-check`, `authwall`, `sorry`), captcha frames
   and widgets, and the title and headings ("verify you are human", "unusual traffic", "too many requests", 429/999).
   A tool can call `wm.challenge()` itself. It is a tripwire, not a guarantee: a site can block in ways it cannot see.
 - `minIntervalSec` is a local record in the tool home. It stops loops and hurried retries; it does not stop a user

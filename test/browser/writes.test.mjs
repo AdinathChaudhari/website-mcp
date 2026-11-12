@@ -99,6 +99,7 @@ test("MCP: write tools advertise destructiveHint, read tools do not; act needs a
     assert.equal(by("ro_listed").annotations?.destructiveHint, undefined);
     assert.equal(by("pw_listed").inputSchema.properties.dryRun.default, true);
     assert.equal(by("act").annotations?.destructiveHint, true);
+    assert.equal(by("run_tool").annotations?.destructiveHint, true, "the generic entry point keeps the write prompt");
     const refused = await mcp.call("act", { code: "return 1" });
     assert.equal(refused.isError, true);
     assert.match(refused.v.error.message, /mint_effect/);
@@ -112,6 +113,9 @@ test("MCP: write tools advertise destructiveHint, read tools do not; act needs a
     assert.deepEqual({ c: real.v.committed, r: real.v.result }, { c: true, r: "clicked" });
     await sleep(300);
     assert.equal(await counter(), before + 1);
+    const bad = await mcp.call("act", { code: `await page.goto(${JSON.stringify(site.url + "/form")}); await wm.commit("m1", async () => { await page.click("#save"); }); return 10n;`, dryRun: false });
+    assert.equal(bad.v.committed, true, "a result that cannot be serialised must not hide the commit");
+    assert.ok(bad.v.error);
     await mcp.call("mint_effect", { effect: "read" });
     assert.equal((await mcp.call("act", { code: "return 1" })).isError, true);
   } finally { await mcp.close(); rm(h); }
@@ -119,6 +123,7 @@ test("MCP: write tools advertise destructiveHint, read tools do not; act needs a
 
 test("a read mint cannot save a write tool; a write mint can", () => {
   const s = new MintSession();
+  install("pw_dry");
   const tool = JSON.parse(readFileSync(join(home, "tools", "pw_dry", "tool.json"), "utf8"));
   const src = readFileSync(join(home, "tools", "pw_dry", "tool.mjs"), "utf8");
   assert.throws(() => s.saveDraft("w_draft", tool, src), /mint_effect/);
@@ -193,6 +198,7 @@ test("page write: fixture tool is clean, wrapper shows committed false on a dry 
 });
 
 test("E4 (offline, real page): fill then handOff reports committed false until the user presses Save, then true", async () => {
+  installFixtureTool(home, "profile_page_write", site.url, "drafts", { as: "pg_w" });
   const src = readFileSync(join(home, "drafts", "pg_w", "tool.mjs"), "utf8").replace("export default ", "").replace(/;\s*$/, "");
   const browser = await chromium.launch();
   try {
@@ -201,6 +207,7 @@ test("E4 (offline, real page): fill then handOff reports committed false until t
       await page.goto(site.url + "/form");
       const before = await counter();
       const p = page.evaluate(composeEval(src, { name: "Ada", waitSec: press ? 10 : 1 }, readPageHelpers(), { dryRun: false }));
+      p.catch(() => {});
       if (press) { await page.waitForFunction(() => document.querySelector("#name").value === "Ada"); await page.click("#save"); }
       return { r: await p, delta: (await counter()) - before };
     };
@@ -226,6 +233,7 @@ test("write fixes: commit() after the run was aborted throws and never runs fn",
 });
 
 test("write fixes: handOff refuses an `until` that already matches (stale marker) instead of reporting committed", async () => {
+  installFixtureTool(home, "profile_page_write", site.url, "drafts", { as: "pg_w" });
   const src = readFileSync(join(home, "drafts", "pg_w", "tool.mjs"), "utf8").replace("export default ", "").replace(/;\s*$/, "");
   const browser = await chromium.launch();
   try {

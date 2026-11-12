@@ -2,4 +2,4 @@
 
 Phase 2 — `node:test` unit tests.
 
-Empty until that phase.
+`node:test` unit tests (bridge, publish gate, rate limits, release checks, content scan, and more).

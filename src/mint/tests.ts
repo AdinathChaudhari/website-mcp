@@ -82,6 +82,11 @@ export function hashCases(dir: string): string {
   return existsSync(f) ? sha256(readFileSync(f, "utf8")) : "";
 }
 
+/** A case input that asks for a real (committing) write run. */
+function setsRealRun(input: unknown): boolean {
+  return !!input && typeof input === "object" && (input as { dryRun?: unknown }).dryRun === false;
+}
+
 /** Throws a readable error unless `raw` is a valid cases array. */
 export function parseCases(raw: unknown): TestCase[] {
   if (!Array.isArray(raw)) throw new InvalidInput("cases must be an array");
@@ -95,6 +100,7 @@ export function parseCases(raw: unknown): TestCase[] {
     seen.add(o.name);
     if (typeof o.purpose !== "string" || !o.purpose) throw new InvalidInput(`${at}.purpose must be a non-empty string`);
     if (!("input" in o)) throw new InvalidInput(`${at}.input is required`);
+    if (setsRealRun(o.input)) throw new InvalidInput(`${at}.input must not set dryRun:false: test cases never commit a write`);
     if (o.expect !== "result" && o.expect !== "empty" && o.expect !== "invalid_input" && o.expect !== "signed_out") {
       throw new InvalidInput(`${at}.expect must be "result", "empty", "invalid_input" or "signed_out"`);
     }
@@ -148,6 +154,7 @@ export function caseProblems(cases: TestCase[], kind: string): string[] {
   const out: string[] = [];
   for (const c of cases) {
     const mode = caseMode(c, kind);
+    if (setsRealRun(c.input)) out.push(`case "${c.name}": input must not set dryRun:false (test cases never commit a write)`);
     if (kind !== "page") {
       if (c.mode === "capture" || c.capture) out.push(`case "${c.name}": captures only exist for page tools (kind "page")`);
       if (c.expect === "signed_out") out.push(`case "${c.name}": expect "signed_out" is for page tools`);
@@ -206,7 +213,9 @@ export async function runCase(name: string, c: TestCase, env: CaseEnv, resultsPa
     } else if (mode === "live") {
       env.reserveLive?.();
     }
-    const out = await runTool(name, c.input, { draft: env.draft, baseDir: env.baseDir, ...(capture ? { capture } : {}) });
+    // Cases are always dry runs: a saved dryRun:false must never reach the site (the parse and publish gates also reject it).
+    const input = setsRealRun(c.input) ? { ...(c.input as object), dryRun: true } : c.input;
+    const out = await runTool(name, input, { draft: env.draft, baseDir: env.baseDir, ...(capture ? { capture } : {}) });
     if (isWriteResult(out)) marks = out.marksReached;
     if (c.expect === "invalid_input") return done(false, "expected invalid_input but the tool returned a result");
     if (c.expect === "signed_out") return done(false, "expected SIGNED_OUT but the tool returned a result");

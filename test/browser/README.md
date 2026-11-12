@@ -2,4 +2,4 @@
 
 Phase 2 — browser tests against the fixture site.
 
-Empty until that phase.
+Browser tests against the fixture site (gate, page-eval, page-mint, waits, writes, and more).

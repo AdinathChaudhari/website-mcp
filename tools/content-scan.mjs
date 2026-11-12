@@ -29,7 +29,9 @@ const deny = existsSync(denyFile)
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l && !l.startsWith("#"))
-      .map((l) => new RegExp(l, "i"))
+      .map((l, i) => {
+        try { return new RegExp(l, "i"); } catch { console.error(`denylist line ${i + 1} is not a valid regex`); process.exit(2); }
+      })
   : [];
 
 const files = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 })

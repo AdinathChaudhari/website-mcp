@@ -232,9 +232,12 @@ test("CHALLENGE stops the mint: the run fails, nothing retries, and no further l
     assert.equal(second.v.error.code, "CHALLENGE");
     assert.match(second.v.error.message, /fresh mint/);
     assert.equal(runs(), 1, "the second live run was refused before touching the site");
+    const sc = await mcp.call("save_cases", { name: "chal_page", cases: [{ name: "live_one", purpose: "a live case after a challenge", input: {}, expect: "result", mode: "live" }] });
+    assert.equal(sc.v.cases, 1);
     const t = await mcp.call("test_tool", { name: "chal_page" });
-    assert.equal(runs(), 1);
-    assert.ok(t);
+    assert.equal(runs(), 1, "test_tool did not reach the site either");
+    assert.notEqual(t.v.passRate, 1, JSON.stringify(t.v));
+    assert.doesNotMatch(JSON.stringify(t.v), /"passed":\s*true/);
   } finally {
     state.challenge = false;
   }

@@ -81,6 +81,6 @@ test("the scanner passes on this repository", () => {
 test("an example denylist is committed and the real one is git-ignored", () => {
   const ignored = execFileSync("git", ["check-ignore", ".content-denylist"], { cwd: ROOT, encoding: "utf8" });
   assert.match(ignored, /\.content-denylist/);
-  const tracked = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd: ROOT, encoding: "utf8" });
+  const tracked = execFileSync("git", ["ls-files", "--cached"], { cwd: ROOT, encoding: "utf8" });
   assert.match(tracked, /^content-denylist\.example$/m);
 });

@@ -18,7 +18,7 @@ export class PageRunner implements Runner {
     const { manifest } = ctx;
     const origins = manifest.site?.allowedOrigins;
     if (!Array.isArray(origins) || origins.length === 0) {
-      throw new ToolFailed(`${manifest.name}: site.allowedOrigins is missing; refusing to run (fail closed)`);
+      throw new ToolFailed(`${manifest.name}: site.allowedOrigins is missing; refusing to run (fail closed)`, true);
     }
     const page = manifest.page ?? {};
     const timeoutMs = (manifest.timeoutSec ?? 60) * 1000;
@@ -58,6 +58,7 @@ export class PageRunner implements Runner {
       if (ctx.write) ctx.write.pageCommitted = w.committed;
       return w.value;
     } catch (e) {
+      if (e instanceof BridgeError && ctx.write && (e.details as { committed?: unknown } | undefined)?.committed === true) ctx.write.pageCommitted = true;
       if (e instanceof BridgeError) throw explain(e, manifest.name, manifest.version, hash, signin?.loginUrl);
       if (e instanceof WebsiteMcpError) throw e;
       throw new ToolFailed(`${manifest.name}: ${e instanceof Error ? e.message : String(e)}`);

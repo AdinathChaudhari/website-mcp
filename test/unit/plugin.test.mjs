@@ -69,6 +69,7 @@ test("launch.mjs without a build next to it exits non-zero with a message that s
     copyFileSync(join(ROOT, "plugin", "launch.mjs"), join(lonely, "launch.mjs"));
     const env = { ...process.env };
     delete env.WEBSITE_MCP_ROOT;
+    delete env.WEBSITE_MCP_ALLOW_NPX;
     const r = spawnSync(process.execPath, [join(lonely, "launch.mjs")], { encoding: "utf8", env });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /cannot find the built server/);

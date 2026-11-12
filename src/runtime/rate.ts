@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homeDir } from "./load.js";
 import { TooSoon } from "./errors.js";
@@ -41,16 +41,51 @@ export function checkInterval(key: string, minIntervalSec: number | undefined, n
  */
 export function reserveInterval(key: string, minIntervalSec: number | undefined, now = Date.now()): () => void {
   if (!minIntervalSec || minIntervalSec <= 0) return () => {};
-  checkInterval(key, minIntervalSec, now);
-  const prev = read()[key];
-  recordRun(key, now);
-  return () => {
-    const data = read();
-    if (data[key] !== now) return; // another run has claimed it since
-    if (prev === undefined) delete data[key];
-    else data[key] = prev;
-    write(data);
-  };
+  const prev = locked(() => {
+    checkInterval(key, minIntervalSec, now);
+    const p = read()[key];
+    write({ ...read(), [key]: now });
+    return p;
+  });
+  return () =>
+    locked(() => {
+      const data = read();
+      if (data[key] !== now) return; // another run has claimed it since
+      if (prev === undefined) delete data[key];
+      else data[key] = prev;
+      write(data);
+    });
+}
+
+/** Cross-process mutex (O_EXCL lock file, short sync retry; a lock older than 5s is treated as stale). Runs fn under it. */
+function locked<T>(fn: () => T): T {
+  mkdirSync(join(homeDir(), "state"), { recursive: true, mode: 0o700 });
+  const lock = `${file()}.lock`;
+  const sleeper = new Int32Array(new SharedArrayBuffer(4));
+  for (let i = 0; ; i++) {
+    try {
+      closeSync(openSync(lock, "wx", 0o600));
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > 5000) unlinkSync(lock);
+      } catch {
+        /* released meanwhile */
+      }
+      if (i > 400) break; // give up waiting: best-effort guard, never wedge a run
+      Atomics.wait(sleeper, 0, 0, 10);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      unlinkSync(lock);
+    } catch {
+      /* already gone */
+    }
+  }
 }
 
 function write(data: Record<string, number>): void {
@@ -62,5 +97,13 @@ function write(data: Record<string, number>): void {
 
 /** Remember that `key` just ran (a visit: success, failure or a challenge). */
 export function recordRun(key: string, now = Date.now()): void {
-  write({ ...read(), [key]: now });
+  locked(() => {
+    let cur: Record<string, number> = {};
+    try {
+      cur = read();
+    } catch {
+      /* an unreadable record is overwritten here: this is the write path */
+    }
+    write({ ...cur, [key]: now });
+  });
 }

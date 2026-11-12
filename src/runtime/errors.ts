@@ -51,8 +51,11 @@ export class InvalidOutput extends WebsiteMcpError {
   }
 }
 export class ToolFailed extends WebsiteMcpError {
-  constructor(message: string) {
+  /** True when the runner refused before anything was sent to the page (so a write failure is not "possibly committed"). */
+  readonly preflight: boolean;
+  constructor(message: string, preflight = false) {
     super("tool_failed", message);
+    this.preflight = preflight;
   }
 }
 export class Timeout extends WebsiteMcpError {

@@ -24,3 +24,6 @@ docs/runs/
 
 # Internal resume log (cites private plan/decisions); kept locally, not published
 docs/STATUS.md
+
+# Local AI review reports
+.preflight/

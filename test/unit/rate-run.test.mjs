@@ -36,3 +36,25 @@ test("a failure that never reaches the page (no bridge) gives the slot back", as
   assert.equal(await code(runTool("nb_page", {})), "NO_BRIDGE");
   assert.equal(await code(runTool("nb_page", {})), "NO_BRIDGE");
 });
+
+test("the page runner's fail-closed refusal (no allowedOrigins) is marked preflight, so run.ts treats it as never reached", async () => {
+  const { PageRunner } = await import("../../dist/runtime/runners/page.js");
+  const ctx = { manifest: { name: "x", kind: "page", effect: "write", site: {} }, fn: () => 1, dir: home, input: {}, signal: new AbortController().signal };
+  await assert.rejects(new PageRunner().run(ctx), (e) => e.code === "tool_failed" && e.preflight === true && /fail closed/.test(e.message));
+});
+
+test("two processes claiming the same slot at once: exactly one wins (cross-process lock)", async () => {
+  const { spawn } = await import("node:child_process");
+  const { fileURLToPath } = await import("node:url");
+  const rate = fileURLToPath(new URL("../../dist/runtime/rate.js", import.meta.url));
+  const script = `import(${JSON.stringify(rate)}).then(m=>{try{m.reserveInterval("xproc",3600);console.log("ok")}catch(e){console.log(e.code)}})`;
+  const one = () => new Promise((res) => {
+    let out = "";
+    const c = spawn(process.execPath, ["-e", script], { env: { ...process.env, WEBSITE_MCP_HOME: home } });
+    c.stdout.on("data", (d) => (out += d));
+    c.on("close", () => res(out.trim()));
+  });
+  const r = await Promise.all(Array.from({ length: 6 }, one));
+  assert.equal(r.filter((x) => x === "ok").length, 1, r.join(","));
+  assert.equal(r.filter((x) => x === "TOO_SOON").length, 5, r.join(","));
+});

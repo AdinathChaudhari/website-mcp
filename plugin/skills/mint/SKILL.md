@@ -13,7 +13,7 @@ Task: $ARGUMENTS
 
 The tools below are the `website-mcp` MCP server's: `guide`, `open`, `snapshot`, `explore`, `save_tool`,
 `save_cases`, `test_tool`, `run_tool`, `submit_review`, `publish_tool`, `list_tools`, and for page tools
-`page_tabs`, `page_snapshot`, `page_explore`, `page_capture`.
+`page_tabs`, `page_snapshot`, `page_explore`, `page_capture`, and for write mints `mint_effect`, `act`.
 
 ## First: browser or page?
 

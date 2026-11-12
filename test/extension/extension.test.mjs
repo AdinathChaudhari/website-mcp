@@ -89,11 +89,11 @@ test("CHALLENGE from the page stops the run: no retry, no tab opened", async () 
   assert.equal(none.error.code, "NO_TAB", "a missing tab is reported, never opened (tabs.create would throw)");
 });
 test("wm.challenge sees captcha frames, checkpoint paths, 'verify you are human' headings and 429 titles; clean pages pass", () => {
-  const page = ({ path = "/profile", title = "Profile", heads = [], frames = [], marks = [] } = {}) => vm.createContext({
+  const page = ({ path = "/profile", title = "Profile", heads = [], frames = [], marks = [], size = { width: 300, height: 80 } } = {}) => vm.createContext({
     location: { pathname: path },
     document: {
       title,
-      querySelectorAll: (s) => (s === "iframe" ? frames.map((src) => ({ src })) : s === "h1" ? heads.map((t) => ({ textContent: t })) : []),
+      querySelectorAll: (s) => (s === "iframe" ? frames.map((src) => ({ src, getBoundingClientRect: () => size })) : s === "h1" ? heads.map((t) => ({ textContent: t })) : []),
       querySelector: (s) => (marks.some((m) => s.split(",").includes(m)) ? {} : null),
     },
     setTimeout, Date,
@@ -106,6 +106,7 @@ test("wm.challenge sees captcha frames, checkpoint paths, 'verify you are human'
   assert.equal(ch({ path: "/challenges/list" }), null, "only whole path segments count");
   assert.ok(ch({ frames: ["https://www.google.com/recaptcha/api2/anchor"] }));
   assert.ok(ch({ frames: ["https://x.test/embed/hcaptcha"] }));
+  assert.equal(ch({ frames: ["https://www.google.com/recaptcha/api2/anchor"], size: { width: 0, height: 0 } }), null, "an invisible reCAPTCHA frame is not a challenge");
   assert.equal(ch({ frames: ["https://x.test/video"] }), null);
   assert.ok(ch({ heads: ["Let's verify you are human"] }));
   assert.ok(ch({ title: "Unusual traffic from your network" }));
@@ -126,6 +127,13 @@ test("composed code checks for a challenge before the tool (it never runs) and a
   const thrown = mk({ path: "/profile" });
   const c = await vm.runInContext(composeCode("async () => { state.path = '/security-check'; throw new Error('selector missing'); }", null, helpers), thrown);
   assert.ok(c.challenge, "a tool that throws on a challenge page reports the challenge, not the selector error");
+});
+test("a write run that was saved and then meets a challenge still reports committed:true", async () => {
+  const state = { path: "/profile", saved: false };
+  const ctx = vm.createContext({ state, location: { get pathname() { return state.path; } }, setTimeout, Date,
+    document: { title: "T", body: { appendChild() {} }, createElement: () => ({ style: {}, remove() {} }), querySelectorAll: () => [], querySelector: (s) => (s === "#ok" && state.saved ? {} : null) } });
+  const r = await vm.runInContext(composeCode("async ({wm}) => { setTimeout(() => { state.saved = true; }, 5); await wm.handOff({ until: '#ok' }); state.path = '/checkpoint'; return 1; }", null, helpers, undefined, { dryRun: false }), ctx);
+  assert.ok(r.challenge); assert.equal(r.committed, true);
 });
 test("wm.scrollToLoad is bounded, human-paced and stops when nothing more loads", async () => {
   const delays = [];
@@ -311,21 +319,20 @@ test("wm.challenge: a long article heading that mentions 'too many requests' is 
   assert.ok(ch([], "Request denied"));
   assert.equal(vm.runInContext(helpers, vm.createContext({ location: { pathname: "/learn/challenge/5" }, document: { title: "T", querySelectorAll: () => [], querySelector: () => null }, setTimeout, Date })).challenge(), null, "a /challenge/ path alone is not enough");
 });
-test("explore, snapshot and capture report CHALLENGE and do not run the model's code on a challenge page", async () => {
-  const c = mockChrome({ tabs: [tab(1, "/")], store: { explore: { [O]: Date.now() + 60000 } }, exec: (o) => [{ result: o.js[0].code.includes("document.title") && o.js[0].code.includes("checkpoint-marker") ? { ok: false, challenge: "captcha on the page" } : { ok: false, challenge: "captcha on the page" } }] });
+test("explore, snapshot and capture do not run the model's code on a challenge page and report CHALLENGE", async () => {
   for (const type of ["snapshot", "explore", "capture"]) {
+    const state = { path: "/checkpoint", ran: 0 };
+    const ctx = vm.createContext({ state, location: { get pathname() { return state.path; }, href: "https://x.test/checkpoint" }, document: { title: "T", documentElement: { outerHTML: "" }, querySelectorAll: () => [], querySelector: () => null, body: { innerText: "", scrollHeight: 0 } }, setTimeout, Date });
+    const ex = mockChrome({ tabs: [tab(1, "/")], store: { explore: { [O]: Date.now() + 60000 } }, exec: () => [{ result: undefined }] });
+    let composed = "";
+    ex.userScripts.execute = async (o) => { composed = o.js[0].code; return [{ result: { ok: true, value: "{}" } }]; };
+    await handleMessage(ex, { type, id: "2", tabId: 1, code: "state.ran++; return 1", timeoutMs: 500 }, helpers, "0.1.0");
+    assert.match(composed, /wm\.challenge\(\)/, type);
+    const out = await vm.runInContext(composed, ctx);
+    assert.ok(out.challenge, type); assert.equal(state.ran, 0, `${type}: model code never ran on the challenge page`);
+    // and the extension maps the page's challenge result to CHALLENGE
+    const c = mockChrome({ tabs: [tab(1, "/")], store: { explore: { [O]: Date.now() + 60000 } }, exec: () => [{ result: { ok: false, challenge: "captcha on the page" } }] });
     const r = await handleMessage(c, { type, id: "1", tabId: 1, code: "return 1", timeoutMs: 500 }, helpers, "0.1.0");
     assert.equal(r.error.code, "CHALLENGE", type);
   }
-  // the composed code itself checks before and after the model's code
-  const code = c.calls.at(-1).js[0].code;
-  assert.match(code, /challenge\(\)/);
-  const state = { path: "/checkpoint", ran: 0 };
-  const ctx = vm.createContext({ state, location: { get pathname() { return state.path; } }, document: { title: "T", documentElement: { outerHTML: "" }, querySelectorAll: () => [], querySelector: () => null }, setTimeout, Date });
-  const ex = mockChrome({ tabs: [tab(1, "/")], store: { explore: { [O]: Date.now() + 60000 } }, exec: (o) => [{ result: undefined }] });
-  let composed = "";
-  ex.userScripts.execute = async (o) => { composed = o.js[0].code; return [{ result: { ok: true, value: "{}" } }]; };
-  await handleMessage(ex, { type: "explore", id: "2", tabId: 1, code: "state.ran++; return 1", timeoutMs: 500 }, helpers, "0.1.0");
-  const out = await vm.runInContext(composed, ctx);
-  assert.ok(out.challenge); assert.equal(state.ran, 0, "explore code never ran on the challenge page");
 });

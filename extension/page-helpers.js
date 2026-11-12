@@ -61,9 +61,12 @@
     /** Why the page looks like a bot check / block, or null. Generic signals only: whole path segments, captcha frames, title and h1. */
     challenge() {
       const heads = [document.title, ...[...document.querySelectorAll("h1")].map((e) => e.textContent || "")];
-      const frame = [...document.querySelectorAll("iframe")].find((f) => /captcha|turnstile|challenges\.cloudflare/i.test(f.src || ""));
+      // Only a visible, sizeable widget counts: an invisible reCAPTCHA v3 badge or a 0x0 anchor frame is not a challenge.
+      const shown = (e) => { try { const r = e.getBoundingClientRect ? e.getBoundingClientRect() : { width: 100, height: 100 }; return r.width >= 50 && r.height >= 50; } catch (x) { return true; } };
+      const frame = [...document.querySelectorAll("iframe")].find((f) => /captcha|turnstile|challenges\.cloudflare/i.test(f.src || "") && shown(f));
       if (/(^|\/)(checkpoint|captcha|security-check|authwall|sorry)(\/|$)/i.test(location.pathname)) return "challenge page path " + location.pathname;
-      if (frame || document.querySelector(".g-recaptcha,.h-captcha,.cf-turnstile")) return "captcha on the page";
+      const widget = document.querySelector(".g-recaptcha,.h-captcha,.cf-turnstile");
+      if (frame || (widget && shown(widget))) return "captcha on the page";
       // Phrases must open a short title or h1 (a long article heading that merely mentions one is not a block page).
       const bad = heads.map((t) => t.trim()).find((t) => t.length <= 80 && (/^((let.s|please) )?verify (that )?you(.re| are) (a )?(human|not a robot)|^are you a (robot|human)|^unusual traffic|^security check\b|^too many requests\b|^request denied\b/i.test(t) || /^(http |error )?(429|999)([^\w]*$|\s+(too many|request|error|denied|blocked))/i.test(t)));
       return bad ? "page says: " + bad.slice(0, 60) : null;

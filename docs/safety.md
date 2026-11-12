@@ -25,7 +25,7 @@ Do not describe the scan as a sandbox, in docs or in the UI.
 
 - `minIntervalSec` and `hardTarget` are enforced by the runtime, not the extension, so they are not in the approval hash. The interval record is the user's own file; it stops loops and retries, not someone who edits it. A run counts from the moment it is dispatched (failures after that still count; failures before the page is reached, such as no tab or not approved, give the slot back), concurrent calls cannot all pass, and a tool's draft live runs and its published runs share one interval.
 - The challenge check is a tripwire on the page's path, captcha frames and title or headings. A site can block in ways it cannot see.
-- The `wm` helpers (`extension/page-helpers.js`) are not part of the approval hash. Approval binds the tool's code and scope; a helper change ships with an extension update, which the user installs.
+- The `wm` helpers (`extension/page-helpers.js`) are not part of a read tool's approval hash (a write tool's hash does cover them, see Writes). Approval binds the tool's code and scope; a helper change ships with an extension update, which the user installs.
 
 - Approval is only as good as the user's reading of the tool. The popup shows name, version, site and hash, not the code.
 - The CSP stops fetch-style requests from the USER_SCRIPT world, not DOM-based exfiltration (above).

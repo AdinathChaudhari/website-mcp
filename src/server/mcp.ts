@@ -151,6 +151,8 @@ const fixedTools = [
     name: "run_tool",
     description: "Run a published tool by name with no model involved: browser tools in a fresh Playwright context, page tools in the matching open tab of the user's own browser via the page bridge. Set draft:true to run the draft instead.",
     inputSchema: obj({ name: { type: "string" }, input: { type: "object" }, draft: { type: "boolean" } }, ["name"]),
+    // run_tool can reach write tools too: keep the per-run prompt (the dynamic per-tool entries carry the same hint).
+    annotations: { destructiveHint: true },
   },
 ];
 
@@ -181,10 +183,11 @@ async function actCode(p: Page, code: string, dryRun: boolean): Promise<unknown>
   let result: unknown;
   try {
     result = await new AsyncFunction("page", "wm", code)(p, makeHelper(state));
+    result = result === undefined ? null : JSON.parse(JSON.stringify(result));
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e), ...state.outcome(), dryRun, marksReached: [...state.reached] };
   }
-  return { ...state.outcome(), dryRun, marksReached: [...state.reached], result: result === undefined ? null : JSON.parse(JSON.stringify(result)) };
+  return { ...state.outcome(), dryRun, marksReached: [...state.reached], result };
 }
 
 async function exploreCode(p: Page, code: string): Promise<unknown> {

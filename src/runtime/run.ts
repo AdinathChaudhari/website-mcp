@@ -16,7 +16,7 @@ const runners: Record<string, Runner> = {
   "page-eval": new PageEvalRunner(),
 };
 
-const NEVER_REACHED_PAGE = new Set(["NO_TAB", "TAB_HIDDEN", "NEEDS_APPROVAL", "SITE_NOT_GRANTED", "NO_BRIDGE", "USER_SCRIPTS_OFF", "EXPLORE_OFF"]);
+const NEVER_REACHED_PAGE = new Set(["NO_TAB", "TAB_HIDDEN", "NEEDS_APPROVAL", "SITE_NOT_GRANTED", "NO_BRIDGE", "USER_SCRIPTS_OFF", "EXPLORE_OFF", "PROTOCOL_MISMATCH", "SIGNED_OUT"]);
 
 export interface RunOptions {
   /** Run the draft in <home>/drafts instead of the published tool. */
@@ -66,14 +66,18 @@ export async function runTool(name: string, input: unknown, opts: RunOptions = {
     result = await Promise.race([runner.run({ manifest, fn: tool.fn, dir: tool.dir, input: toolInput, signal: ac.signal, draft: !!(opts.draft || opts.baseDir), capture: opts.capture, write }), timeout]);
   } catch (e) {
     // Only failures that never reached the page give the slot back.
-    const neverReached = e instanceof WebsiteMcpError && NEVER_REACHED_PAGE.has(e.code);
+    const neverReached = (e instanceof WebsiteMcpError && NEVER_REACHED_PAGE.has(e.code)) || (e instanceof ToolFailed && e.preflight);
     if (neverReached) release();
     // A page write that reached the tab and then failed may have been saved by the user: say so rather than "not committed".
     if (write && manifest.kind === "page" && !neverReached && !(e instanceof InvalidInput) && !write.dryRun) write.pageUncertain = true;
     if (write && e instanceof WebsiteMcpError) e.outcome = write.outcome();
     if (e instanceof WebsiteMcpError && e.code === "CHALLENGE" && live) {
       // Stop for good: a blocked visit counts for the interval, and a mint may not spend more live runs.
-      recordRun(rateKey);
+      try {
+        recordRun(rateKey);
+      } catch {
+        /* an unreadable run-time record must not mask the challenge or skip markChallenged */
+      }
       if (opts.draft) markChallenged(join(draftsDir(), name), e.message);
     }
     if (e instanceof WebsiteMcpError) throw e;
@@ -85,7 +89,11 @@ export async function runTool(name: string, input: unknown, opts: RunOptions = {
   }
 
   const vout = validate(manifest.output, result);
-  if (!vout.ok) throw new InvalidOutput(`${name}: ${vout.errors}`);
+  if (!vout.ok) {
+    const bad = new InvalidOutput(`${name}: ${vout.errors}`);
+    if (write) bad.outcome = write.outcome(); // the write may already have committed: say so
+    throw bad;
+  }
   if (write) {
     // Write results always say what happened: the tool's own output sits under `result`.
     return { committed: write.committed, possibleCommit: write.possibleCommit, dryRun: write.dryRun, marksReached: [...write.reached].sort(), result };

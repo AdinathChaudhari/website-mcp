@@ -99,10 +99,12 @@ export function staticChecks(dir: string): Reason[] {
   }
   if (m.effect !== "read" && m.effect !== "write") reasons.push({ code: "bad_manifest", message: 'effect must be "read" or "write"' });
   const kind = m.kind ?? "browser";
+  let writeBlockOk = true;
   if (m.effect === "write" || m.commitMarks !== undefined) {
     try {
       assertWriteBlock(m as { effect?: unknown; kind?: unknown; commitMarks?: unknown; hardTarget?: unknown; input?: unknown }, "tool");
     } catch (e) {
+      writeBlockOk = false;
       reasons.push({ code: "bad_write", message: (e as Error).message });
     }
   }
@@ -146,7 +148,7 @@ export function staticChecks(dir: string): Reason[] {
       if (!/\bwm\s*\.\s*handOff\s*\(/.test(source)) reasons.push({ code: "write_no_handoff", message: "a page write tool must end in wm.handOff({ prompt, until, timeoutSec }): the user presses Save, never the tool" });
     } else if (Array.isArray(m.commitMarks)) {
       if (!/\bwm\s*\.\s*commit\s*\(/.test(source)) reasons.push({ code: "write_no_commit", message: "a browser write tool must save/submit inside wm.commit(mark, fn); the source has no wm.commit call" });
-      for (const mark of m.commitMarks as string[]) {
+      for (const mark of writeBlockOk ? (m.commitMarks as string[]) : []) {
         if (!new RegExp(`\\bwm\\s*\\.\\s*commit\\s*\\(\\s*["'\`]${mark}["'\`]`).test(source)) reasons.push({ code: "write_no_commit", message: `commitMarks lists "${mark}" but the source has no wm.commit("${mark}", ...)` });
       }
     }

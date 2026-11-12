@@ -7,6 +7,7 @@ useDefault = true
 # extension/manifest.json carries the extension's PUBLIC key (it pins the extension ID). Not a secret.
 [[allowlists]]
 description = "public extension key"
+condition = "AND"
 paths = ['''^extension/manifest\.json$''']
 regexTarget = "line"
 regexes = ['''"key"\s*:''']

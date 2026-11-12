@@ -51,7 +51,7 @@ Every run is checked for a challenge page (captcha, checkpoint path, "verify you
 the tool, after it, and when it throws; any hit is `CHALLENGE`, the run stops and is not retried, and a mint cannot spend
 more live runs. `wm.challenge()` returns the reason or `null`. `wm.scrollToLoad({ maxSteps = 10, pauseMs = 800 })`
 scrolls in human-paced, jittered steps (at most 50, pause 200 ms to 5 s) until nothing new loads; keep the tool's
-`timeoutSec` above steps x pause. `wm` helpers are NOT part of the approval hash, so a helper update does not re-prompt.
+`timeoutSec` above steps x pause. `wm` helpers are not part of a read tool's approval hash, but a write tool's hash covers them, so a helper update asks again for write tools.
 
 `signin.json` (optional, pass it as `signin` to save_tool): `{ "marker": "<css selector present only when signed in>",
 "loginUrl": "https://example.com/login" }`. It is checked in the tab before the script runs; absent marker returns

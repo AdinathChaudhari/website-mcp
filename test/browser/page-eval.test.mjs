@@ -103,3 +103,12 @@ test("a capture of a challenge page is CHALLENGE, not a selector error; a clean 
   await assert.rejects(runTool("probe_page", {}, { draft: true, capture: join(dir, "8.html") }), (e) => e.code === "CHALLENGE" && /challenge or block/.test(e.message));
   assert.equal((await runTool("quotes_page", {}, { draft: true, capture: CAP1 })).quotes.length, 3);
 });
+
+test("challenge is checked before the signin marker: a challenge capture without the marker is CHALLENGE, not SIGNED_OUT", async () => {
+  const dir = join(home, "drafts", "chsi_page", "captures");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "7.html"), '<html><head><title>Security check</title></head><body><h1>Let\'s verify you are human</h1><iframe src="https://captcha.test/frame"></iframe></body></html>');
+  const tdir = installFixtureTool(home, "quotes_page", O, "drafts", { as: "chsi_page" });
+  writeFileSync(join(tdir, "signin.json"), JSON.stringify({ marker: "a.account-menu", loginUrl: `${O}/login` }));
+  await assert.rejects(runTool("chsi_page", {}, { draft: true, capture: join(dir, "7.html") }), (e) => e.code === "CHALLENGE");
+});

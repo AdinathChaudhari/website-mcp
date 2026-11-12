@@ -21,7 +21,7 @@ export function composeCode(source, input, helpersText, signin, write) {
   const ret = write ? "{ok:true,value:{value:v,committed:wm.committed()}}" : "{ok:true,value:v}";
   const gate = signin ? `if(!document.querySelector(${JSON.stringify(signin.marker)}))return {ok:false,signedOut:true};` : "";
   // A challenge is checked before the tool (it never runs on one), after it (the result is discarded) and when it throws; ahead of the sign-in marker.
-  return `(async()=>{const wm=${helpersText};${arm}const ch=()=>{try{const c=wm.challenge();return c?{ok:false,challenge:c}:null}catch(e){return null}};` +
+  return `(async()=>{const wm=${helpersText};${arm}const ch=()=>{try{const c=wm.challenge();return c?{ok:false,challenge:c${write ? ",committed:wm.committed()" : ""}}:null}catch(e){return null}};` +
     `try{const c=ch();if(c)return c;${gate}const v=await (${source})({input:${JSON.stringify(input ?? null)},wm});return ch()||${ret};}` +
     `catch(e){return ch()||{ok:false,message:String((e&&e.message)||e)};}})()`;
 }
@@ -60,7 +60,7 @@ const execIn = (chrome, tabId, code, world, timeoutMs, errCode = "SCRIPT_ERROR")
     .then((res) => {
       const r = res?.[0]?.result;
       if (res?.[0]?.error || !r) return err(errCode, String(res?.[0]?.error ?? "script returned nothing"));
-      if (r.challenge) return err("CHALLENGE", `The page shows a challenge or block (${r.challenge}); the run stopped and will not retry`);
+      if (r.challenge) return err("CHALLENGE", `The page shows a challenge or block (${r.challenge}); the run stopped and will not retry`, r.committed === true ? { committed: true } : undefined);
       if (r.signedOut) return err("SIGNED_OUT", "signed-in marker not found in the tab");
       return r.ok ? { ok: true, value: r.value } : err(errCode, r.message);
     })

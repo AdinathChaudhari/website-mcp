@@ -9,7 +9,8 @@ export class WriteState {
   /** Marks wm.commit was called with, including in a dry run (that is the proof a mark is reachable). */
   readonly reached = new Set<string>();
   private readonly done = new Set<string>();
-  private entered: string | null = null;
+  /** Marks whose commit started and has not finished OK (failed or still running); sticky, so a later commit cannot hide them. */
+  private readonly entered = new Set<string>();
   /** Page tools: the extension reported the user's Save. */
   pageCommitted = false;
   /** Page tools: the run reached the tab and then failed, so a Save by the user cannot be ruled out. */
@@ -30,10 +31,10 @@ export class WriteState {
     if (this.signal?.aborted) throw new ToolFailed("wm.commit refused: the run was aborted (timed out), so nothing is committed");
     this.reached.add(mark);
     if (this.dryRun) return undefined;
-    this.entered = mark;
+    this.entered.add(mark);
     const r = (await fn()) as T;
     this.done.add(mark);
-    this.entered = null;
+    this.entered.delete(mark);
     return r;
   }
 
@@ -41,7 +42,7 @@ export class WriteState {
     return this.done.size > 0 || this.pageCommitted;
   }
   get possibleCommit(): boolean {
-    return this.entered !== null || this.pageUncertain;
+    return this.entered.size > 0 || this.pageUncertain;
   }
   outcome(): { committed: boolean; possibleCommit: boolean } {
     return { committed: this.committed, possibleCommit: this.possibleCommit };
