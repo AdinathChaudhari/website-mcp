@@ -41,11 +41,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "TODO: set to the public repository URL"
+    "url": "git+https://github.com/AdinathChaudhari/website-mcp.git"
   },
-  "homepage": "TODO: set to the public repository URL",
+  "homepage": "https://github.com/AdinathChaudhari/website-mcp#readme",
   "bugs": {
-    "url": "TODO: set to the public issue tracker URL"
+    "url": "https://github.com/AdinathChaudhari/website-mcp/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
