@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "minimum_chrome_version": "138",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsaGpEPKKU/7esC4Mq+LmtKWGQQ30SZd3pqZirlr1s4sxnXEoxN9F1y6IHxdLDMp4T1lB7QH3NlavknxXwmq/KnByCaXHEnSTIm3wlhHduAbwardQUd8twCgsFTT/Bxl4naEc88LkRMdOxE8Kr5rIiOwml2aaIGpln1UZn8NH/GqQiop8JdMB5VQNcZxL86/Yp2eChQJ5s1Pu4v0kznOIKWC026FvJ5urUnUKNBdqbUo3Mk9itS5i/Y966baAo5nJ9qzTWZChaYQmSOcma31LEUeU6pBAyvn8vsZf+ka06DRDbuGy/95emDgKLQuQutsYRxMzp9zdnagq6/gCVBkzXQIDAQAB",
-  "permissions": ["userScripts", "nativeMessaging", "alarms", "storage"],
+  "permissions": ["userScripts", "nativeMessaging", "alarms", "storage", "activeTab"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "sw.js", "type": "module" },
   "action": { "default_popup": "popup.html" }
