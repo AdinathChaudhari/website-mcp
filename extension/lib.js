@@ -100,7 +100,10 @@ export async function handleRun(chrome, msg, helpersText) {
   if (!granted.length)
     return err("SITE_NOT_GRANTED", `Open ${msg.origins?.[0]} and click 'Allow this site' in the website-mcp extension popup`, { origins: msg.origins });
   if (msg.draft) {
-    if (!(await exploreOpen(chrome, granted[0]))) return err("EXPLORE_OFF", "Draft runs need the popup's explore window open for this site");
+    const open = [];
+    for (const o of granted) if (await exploreOpen(chrome, o)) open.push(o);
+    granted.splice(0, granted.length, ...open); // a draft only runs in tabs of origins whose explore window is open
+    if (!granted.length) return err("EXPLORE_OFF", "Draft runs need the popup's explore window open for this site");
   } else {
     const { approved = {}, pending = {} } = await chrome.storage.local.get(["approved", "pending"]);
     const hash = await runHash(msg, helpersText);

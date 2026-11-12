@@ -7,7 +7,7 @@ argument-hint: <what to read> on <site url>
 # mint
 
 Explore a public site with the website-mcp tools, write a script, prove it, get it reviewed, save it. Saved
-tools are read-only and run later with no model in the loop.
+tools are read-only unless minted with `mint_effect` write (the user saves, never the tool), and run later with no model in the loop.
 
 Task: $ARGUMENTS
 

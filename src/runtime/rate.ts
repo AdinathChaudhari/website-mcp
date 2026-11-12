@@ -62,9 +62,11 @@ function locked<T>(fn: () => T): T {
   mkdirSync(join(homeDir(), "state"), { recursive: true, mode: 0o700 });
   const lock = `${file()}.lock`;
   const sleeper = new Int32Array(new SharedArrayBuffer(4));
+  let acquired = false;
   for (let i = 0; ; i++) {
     try {
       closeSync(openSync(lock, "wx", 0o600));
+      acquired = true;
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
@@ -80,10 +82,12 @@ function locked<T>(fn: () => T): T {
   try {
     return fn();
   } finally {
-    try {
-      unlinkSync(lock);
-    } catch {
-      /* already gone */
+    if (acquired) {
+      try {
+        unlinkSync(lock);
+      } catch {
+        /* already gone */
+      }
     }
   }
 }

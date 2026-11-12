@@ -11,6 +11,7 @@ export class WriteState {
   private readonly done = new Set<string>();
   /** Marks whose commit started and has not finished OK (failed or still running); sticky, so a later commit cannot hide them. */
   private readonly entered = new Set<string>();
+  private seq = 0;
   /** Page tools: the extension reported the user's Save. */
   pageCommitted = false;
   /** Page tools: the run reached the tab and then failed, so a Save by the user cannot be ruled out. */
@@ -31,10 +32,11 @@ export class WriteState {
     if (this.signal?.aborted) throw new ToolFailed("wm.commit refused: the run was aborted (timed out), so nothing is committed");
     this.reached.add(mark);
     if (this.dryRun) return undefined;
-    this.entered.add(mark);
+    const id = `${mark}#${++this.seq}`;
+    this.entered.add(id);
     const r = (await fn()) as T;
     this.done.add(mark);
-    this.entered.delete(mark);
+    this.entered.delete(id);
     return r;
   }
 

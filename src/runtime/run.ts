@@ -67,7 +67,13 @@ export async function runTool(name: string, input: unknown, opts: RunOptions = {
   } catch (e) {
     // Only failures that never reached the page give the slot back.
     const neverReached = (e instanceof WebsiteMcpError && NEVER_REACHED_PAGE.has(e.code)) || (e instanceof ToolFailed && e.preflight);
-    if (neverReached) release();
+    if (neverReached) {
+      try {
+        release();
+      } catch {
+        /* an unreadable run-time record must not mask the original error */
+      }
+    }
     // A page write that reached the tab and then failed may have been saved by the user: say so rather than "not committed".
     if (write && manifest.kind === "page" && !neverReached && !(e instanceof InvalidInput) && !write.dryRun) write.pageUncertain = true;
     if (write && e instanceof WebsiteMcpError) e.outcome = write.outcome();
@@ -75,8 +81,9 @@ export async function runTool(name: string, input: unknown, opts: RunOptions = {
       // Stop for good: a blocked visit counts for the interval, and a mint may not spend more live runs.
       try {
         recordRun(rateKey);
-      } catch {
-        /* an unreadable run-time record must not mask the challenge or skip markChallenged */
+      } catch (re) {
+        // an unreadable run-time record must not mask the challenge or skip markChallenged
+        process.stderr.write(`website-mcp: could not record the challenged visit: ${re instanceof Error ? re.message : String(re)}\n`);
       }
       if (opts.draft) markChallenged(join(draftsDir(), name), e.message);
     }

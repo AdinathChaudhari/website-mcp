@@ -58,3 +58,51 @@ test("two processes claiming the same slot at once: exactly one wins (cross-proc
   assert.equal(r.filter((x) => x === "ok").length, 1, r.join(","));
   assert.equal(r.filter((x) => x === "TOO_SOON").length, 5, r.join(","));
 });
+
+test("a later successful commit of the same mark does not hide an earlier failed one", async () => {
+  const { WriteState } = await import("../../dist/runtime/write.js");
+  const w = new WriteState(false, ["save"]);
+  await assert.rejects(() => w.commit("save", async () => { throw new Error("boom"); }));
+  await w.commit("save", async () => 1);
+  assert.equal(w.possibleCommit, true);
+});
+
+test("F6: a malformed signin.json is a preflight failure, so the slot is given back (retry is not TOO_SOON)", async () => {
+  const { writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  installFixtureTool(home, "quotes_page", O, "tools", { as: "badsignin_page", manifestTransform: (m) => ({ ...m, minIntervalSec: 60 }) });
+  writeFileSync(join(home, "tools", "badsignin_page", "signin.json"), "{not json");
+  assert.equal(await code(runTool("badsignin_page", {})), "tool_failed");
+  assert.equal(await code(runTool("badsignin_page", {})), "tool_failed");
+});
+
+test("F4: a release() that throws does not mask the original run error", async () => {
+  const net = await import("node:net");
+  const { writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  installFixtureTool(home, "quotes_page", O, "tools", { as: "relfail_page", manifestTransform: (m) => ({ ...m, minIntervalSec: 60 }) });
+  const sock = join(home, "bridge.sock");
+  // A fake bridge that corrupts the run-time record after the slot was reserved, then hangs up (NO_BRIDGE, never reached the page).
+  const srv = net.createServer((c) => { writeFileSync(join(home, "state", "last-run.json"), "{corrupt"); c.destroy(); });
+  await new Promise((res) => srv.listen(sock, res));
+  try {
+    assert.equal(await code(runTool("relfail_page", {})), "NO_BRIDGE");
+  } finally {
+    srv.close();
+    rm(join(home, "state", "last-run.json"));
+  }
+});
+
+test("F3: giving up on a stalled lock does not delete the other holder's lock file", async () => {
+  const { writeFileSync, existsSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { reserveInterval } = await import("../../dist/runtime/rate.js");
+  const lock = join(home, "state", "last-run.json.lock");
+  writeFileSync(lock, "");
+  try {
+    reserveInterval("f3tool", 60); // waits ~4s, then proceeds without the lock
+    assert.equal(existsSync(lock), true, "the lock belongs to someone else and must survive");
+  } finally {
+    rm(lock);
+  }
+});

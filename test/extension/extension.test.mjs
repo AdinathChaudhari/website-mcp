@@ -115,6 +115,18 @@ test("wm.challenge sees captcha frames, checkpoint paths, 'verify you are human'
   assert.equal(ch({ heads: ["999 followers"] }), null);
   assert.ok(ch({ marks: [".g-recaptcha"] }));
 });
+test("F1: a captcha frame that is hidden, transparent or off-screen is not a challenge; a visible one is", () => {
+  const ch = (cs, rect = { width: 300, height: 80, left: 10, top: 10, right: 310, bottom: 90 }) => vm.runInContext(helpers, vm.createContext({
+    location: { pathname: "/p" }, innerWidth: 1000, innerHeight: 800, getComputedStyle: () => ({ display: "block", visibility: "visible", opacity: "1", ...cs }),
+    document: { title: "T", querySelectorAll: (s) => (s === "iframe" ? [{ src: "https://www.google.com/recaptcha/api2/bframe", getBoundingClientRect: () => rect }] : []), querySelector: () => null },
+    setTimeout, Date,
+  })).challenge();
+  assert.ok(ch({}), "visible frame");
+  assert.equal(ch({ visibility: "hidden" }), null);
+  assert.equal(ch({ display: "none" }), null);
+  assert.equal(ch({ opacity: "0" }), null);
+  assert.equal(ch({}, { width: 400, height: 580, left: -10000, top: -10000, right: -9600, bottom: -9420 }), null, "off-screen");
+});
 test("composed code checks for a challenge before the tool (it never runs) and after it", async () => {
   const mk = (state) => vm.createContext({ ran: 0, state, location: { get pathname() { return state.path; } }, document: { title: "T", querySelectorAll: () => [], querySelector: () => null }, setTimeout, Date });
   const pre = mk({ path: "/checkpoint" });
@@ -237,6 +249,13 @@ test("draft run: no approval, but only while the explore window is open", async 
   assert.equal((await run(open, { draft: true })).ok, true);
   const expired = mockChrome({ tabs: [tab(1, "/")], approve: false, store: exploreOn(-1) });
   assert.equal((await run(expired, { draft: true })).error.code, "EXPLORE_OFF");
+});
+test("draft run: a granted origin whose explore window is closed is never run in", async () => {
+  const O2 = "https://other.test";
+  const c = mockChrome({ granted: [O, O2], tabs: [{ id: 5, url: `${O2}/` }], approve: false, store: exploreOn() });
+  const all = c.tabs.query; c.tabs.query = async ({ url }) => (await all()).filter((t) => url.some((u) => t.url.startsWith(u.replace("/*", ""))));
+  assert.equal((await run(c, { draft: true, origins: [O, O2] })).error.code, "NO_TAB");
+  assert.equal(c.calls.length, 0);
 });
 test("signin marker is checked in the tab: SIGNED_OUT names the login URL", async () => {
   const c = mockChrome({ tabs: [tab(1, "/")], exec: (o) => { assert.match(o.js[0].code, /querySelector\("a\.me"\)/); return [{ result: { ok: false, signedOut: true } }]; } });

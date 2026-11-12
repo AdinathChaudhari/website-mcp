@@ -62,7 +62,7 @@
     challenge() {
       const heads = [document.title, ...[...document.querySelectorAll("h1")].map((e) => e.textContent || "")];
       // Only a visible, sizeable widget counts: an invisible reCAPTCHA v3 badge or a 0x0 anchor frame is not a challenge.
-      const shown = (e) => { try { const r = e.getBoundingClientRect ? e.getBoundingClientRect() : { width: 100, height: 100 }; return r.width >= 50 && r.height >= 50; } catch (x) { return true; } };
+      const shown = (e) => { try { const r = e.getBoundingClientRect ? e.getBoundingClientRect() : { width: 100, height: 100 }; if (r.width < 50 || r.height < 50) return false; const cs = getComputedStyle(e); if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity) === 0) return false; return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight; } catch (x) { return true; } };
       const frame = [...document.querySelectorAll("iframe")].find((f) => /captcha|turnstile|challenges\.cloudflare/i.test(f.src || "") && shown(f));
       if (/(^|\/)(checkpoint|captcha|security-check|authwall|sorry)(\/|$)/i.test(location.pathname)) return "challenge page path " + location.pathname;
       const widget = document.querySelector(".g-recaptcha,.h-captcha,.cf-turnstile");

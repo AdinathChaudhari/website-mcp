@@ -236,8 +236,9 @@ test("CHALLENGE stops the mint: the run fails, nothing retries, and no further l
     assert.equal(sc.v.cases, 1);
     const t = await mcp.call("test_tool", { name: "chal_page" });
     assert.equal(runs(), 1, "test_tool did not reach the site either");
-    assert.notEqual(t.v.passRate, 1, JSON.stringify(t.v));
-    assert.doesNotMatch(JSON.stringify(t.v), /"passed":\s*true/);
+    assert.equal(t.v.passRate, 0, JSON.stringify(t.v));
+    assert.equal(t.v.results[0].pass, false);
+    assert.match(t.v.results[0].error, /CHALLENGE/);
   } finally {
     state.challenge = false;
   }

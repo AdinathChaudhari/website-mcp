@@ -22,13 +22,20 @@ export class PageRunner implements Runner {
     }
     const page = manifest.page ?? {};
     const timeoutMs = (manifest.timeoutSec ?? 60) * 1000;
-    const signin = readSignin(ctx.dir); // throws (fail closed) on a malformed signin.json
+    const pre = <T>(f: () => T): T => {
+      try {
+        return f();
+      } catch (e) {
+        throw new ToolFailed(e instanceof Error ? e.message : String(e), true); // before the bridge: the page was never reached
+      }
+    };
+    const signin = pre(() => readSignin(ctx.dir)); // fails closed on a malformed signin.json
     const world = page.world ?? "USER_SCRIPT";
     const source = ctx.fn.toString();
     const needsVisible = page.needsVisible ?? false;
     const write = manifest.effect === "write";
     // A write tool's approval also binds to the helper text (fill / handOff), so a helper change asks again. Read tools keep the old hash.
-    const hash = runHash({ source, world, urlPattern: page.urlPattern, origins, signin, needsVisible, ...(write ? { effect: "write", helpers: sha256(readPageHelpers()) } : {}) });
+    const hash = runHash({ source, world, urlPattern: page.urlPattern, origins, signin, needsVisible, ...(write ? { effect: "write", helpers: sha256(pre(readPageHelpers)) } : {}) });
     try {
       const value = await bridgeRequest(
         {
