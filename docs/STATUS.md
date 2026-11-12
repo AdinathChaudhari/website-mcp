@@ -1,13 +1,13 @@
 # website-mcp — status and resume guide
 
-**As of 2026-11-11: Phases 1–2 of 8 done. Phase 3 (plugin + reviewer) is next.**
-Plan: `docs/01-planning/PLAN v2.md` (private, git-ignored). Nothing is committed yet.
+**As of 2026-11-12: Phases 1–4 of 8 done (Phase 4 pending manual Brave check). Phase 5 next.**
+Plan: `docs/01-planning/PLAN v2.md` (private, git-ignored). Phases 1–2 committed (4df108d); Phase 3 uncommitted.
 
 ## Resume in 3 steps
 
-1. `cd` into the repo and run `npm test` → expect `tests 38 / pass 38`.
+1. `cd` into the repo and run `npm test` → expect `tests 97 / pass 97`.
 2. Run `node dist/cli.js test quotes_by_tag` → expect `4/4 passed`.
-3. Start Phase 3 (PLAN v2 §4 Phase 3) with the same workflow shape as Phases 1–2
+3. Finish Phase 4's manual Brave steps (`docs/runs/05-phase-4/USER-CHECKLIST.md`), then Phase 5 with the same workflow shape as Phases 1–2
    (Haiku extract → Sonnet build/prove/fix → one Opus verifier → Haiku recorder).
 
 ## What works today
@@ -20,13 +20,17 @@ Plan: `docs/01-planning/PLAN v2.md` (private, git-ignored). Nothing is committed
 | MCP server | `src/server/mcp.ts` | `open`, `snapshot`, `explore`, `save_tool` (draft), `save_cases`, `test_tool`, `publish_tool`, `list_tools`, `run_tool`, one tool per published folder, live `tools/list_changed` |
 | CLI | `src/cli.ts` | `serve`, `run`, `list`, `test [--draft]`, `publish` |
 | Skill | `.claude/skills/mint/SKILL.md` | Project-level `/mint` loop |
-| Tests | `test/unit`, `test/browser`, `test/fixtures/{site,tools}` | 38 tests, ~5 s, loopback only; scripted no-model mint |
+| Tests | `test/unit`, `test/browser`, `test/fixtures/{site,tools}` | 73 tests, loopback only; scripted no-model mint |
+| Plugin | `.claude-plugin/marketplace.json`, `plugin/` (launch.mjs, skill, reviewer agent) | Local marketplace, loads in place; `/website-mcp:mint` |
+| Page bridge | `extension/` (211 lines), `src/bridge/`, `runners/page.ts` | `bridge install/status/uninstall --browser brave`; host copied to `~/.website-mcp/bridge/` |
+| Review gate | `src/mint/review.ts` | Publish needs an allow bound to name + source hash + cases hash |
+| Guides + waits | `authoring/*.md`, `src/server/guides.ts`, `src/browser/waits.ts` | `guide(topic)`; `wm.waitForOutcome`, `wm.paginate` |
 | CI | `.github/workflows/ci.yml` | Node 22, actions pinned to SHAs |
 
 Deps (exact): playwright 1.65.0, @modelcontextprotocol/sdk 1.32.2, ajv 8.20.0; dev: typescript 7.0.2,
 @types/node 26.6.6. Node 23.11 locally.
 
-Tool home: `~/.website-mcp/` (`WEBSITE_MCP_HOME` overrides). Published: `quotes_by_tag` (v2, 4 cases).
+Tool home: `~/.website-mcp/` (`WEBSITE_MCP_HOME` overrides). Published: `quotes_by_tag` (v2, 4 cases, pre-review), `books_by_category` (v1, 8 cases, reviewed).
 
 ## Not done / known limits
 
@@ -40,8 +44,6 @@ Tool home: `~/.website-mcp/` (`WEBSITE_MCP_HOME` overrides). Published: `quotes_
 
 | # | Phase | Hours |
 |---|---|---|
-| 3 | Plugin + reviewer subagent + authoring guides (`/website-mcp:mint` from any folder) | 3–4 |
-| 4 | Page bridge: extension + native host, hand-written page tool runs in a Brave tab | 4–5 |
 | 5 | Mint page tools: explore, capture, test offline, approve in popup | 4–6 |
 | 6 | Hard-target signed-in read (gated on go/no-go) | 2–3 |
 | 7 | Writes, both kinds | 6–8 |
@@ -53,3 +55,11 @@ Tool home: `~/.website-mcp/` (`WEBSITE_MCP_HOME` overrides). Published: `quotes_
 - `docs/runs/02-phase-1/`, `docs/runs/03-phase-2/` — RUNLOG, checklist, verbatim agent reports,
   evidence (private, git-ignored).
 - `docs/research/` — prior-art notes (publishable).
+
+## Install the plugin in your own Claude Code (not done by agents)
+
+```
+claude plugin marketplace add <path-to-this-repo>
+claude plugin install website-mcp@website-mcp
+```
+Then in any folder: `/website-mcp:mint <task> on <site>`. Requires `npm run build` in the repo first.

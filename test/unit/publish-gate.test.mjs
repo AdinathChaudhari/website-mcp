@@ -23,12 +23,17 @@ const manifest = (extra = {}) => ({
 const SRC = `export default async ({ page }) => { await page.goto("${ORIGIN}/"); return { items: [] }; };\n`;
 const cases = (n) => Array.from({ length: n }, (_, i) => ({ name: `c${i}`, purpose: "p", input: {}, expect: "result" }));
 
-function draft(name, { tool = manifest(), source = SRC, cs = cases(3) } = {}) {
+/** An allow review for the draft's current source, as submit_review would write it. */
+function approveSync(dir, verdict = "allow") {
+  writeFileSync(join(dir, "review.json"), JSON.stringify({ verdict, findings: [], sourceHash: hashSource(dir), name: dir.split("/").pop(), casesHash: hashCases(dir), reviewedAt: "2026-01-01T00:00:00.000Z" }));
+}
+function draft(name, { tool = manifest(), source = SRC, cs = cases(3), review = true } = {}) {
   const dir = join(home, "drafts", name);
   mkdirSync(join(dir, "tests"), { recursive: true });
   writeFileSync(join(dir, "tool.json"), JSON.stringify(tool));
   writeFileSync(join(dir, "tool.mjs"), source);
   if (cs) writeFileSync(join(dir, "tests", "cases.json"), JSON.stringify(cs));
+  if (review) approveSync(dir);
   return dir;
 }
 /** Pretend the draft was tested: write a last-run whose hashes match, so publish does not launch a browser. */
@@ -129,6 +134,7 @@ test("publishes at the bar, bumps version, keeps history", async () => {
   assert.equal(JSON.parse(readFileSync(join(pub, "tests", "last-run.json"), "utf8")).version, 1);
 
   writeFileSync(join(dir, "tool.json"), JSON.stringify(manifest({ description: "v2" })));
+  approveSync(dir); // an edit makes the old review stale
   const r2 = await publishDraft("ok", dir, { trustedRun: fakeRun(dir, 10, 10) });
   assert.equal(r2.version, 2);
   assert.equal(r2.previous, 1);
@@ -136,6 +142,7 @@ test("publishes at the bar, bumps version, keeps history", async () => {
   assert.equal(JSON.parse(readFileSync(join(pub, ".history", "1", "tool.json"), "utf8")).version, 1);
 
   writeFileSync(join(dir, "tool.json"), JSON.stringify(manifest({ description: "v3" })));
+  approveSync(dir);
   await publishDraft("ok", dir, { trustedRun: fakeRun(dir, 10, 10) });
   assert.deepEqual(readdirSync(join(pub, ".history")).sort(), ["1", "2"]);
   assert.ok(!readdirSync(join(home, "tools")).some((f) => f.startsWith(".stage")), "no stage dir left");
@@ -164,10 +171,12 @@ test("a stale trusted run (source or cases edited after it) is re-run and refuse
   const dir = draft("stale", { source: BROKEN.replace("broken", "x") });
   const run = fakeRun(dir, 3, 3);
   writeFileSync(join(dir, "tool.mjs"), BROKEN + "// edited after the run\n");
+  approveSync(dir); // re-reviewed, so the refusal below is about the stale RUN, not the review
   assert.ok(codes(await reasonsOf("stale", dir, { trustedRun: run })).includes("pass_rate"), "source edit");
   const dir2 = draft("stale2", { source: BROKEN });
   const run2 = fakeRun(dir2, 3, 3);
   writeFileSync(join(dir2, "tests", "cases.json"), JSON.stringify(cases(4)));
+  approveSync(dir2); // re-reviewed with the new cases, so the refusal is about the stale RUN
   assert.ok(codes(await reasonsOf("stale2", dir2, { trustedRun: run2 })).includes("pass_rate"), "cases edit");
   assert.ok(!existsSync(join(home, "tools", "stale")) && !existsSync(join(home, "tools", "stale2")));
 });
@@ -185,4 +194,95 @@ test("bad name, tool or cases throw InvalidInput (code invalid_input)", () => {
 
 test("staticChecks reports a missing draft", () => {
   assert.equal(staticChecks(join(home, "drafts", "ghost"))[0].code, "no_draft");
+});
+
+// ---- review gate ----------------------------------------------------------------------------------------------
+const { saveReview, readReview, reviewProblem, parseFindings } = await import("../../dist/mint/review.js");
+
+test("review gate: a missing review refuses publish and names the reason", async () => {
+  const dir = draft("rv_none", { review: false });
+  const rs = await reasonsOf("rv_none", dir, { trustedRun: fakeRun(dir, 3, 3) });
+  const r = rs.find((x) => x.code === "review");
+  assert.match(r.message, /no review/);
+  assert.ok(!existsSync(join(home, "tools", "rv_none")));
+});
+test("review gate: a deny verdict refuses, quoting the blocking findings", async () => {
+  const dir = draft("rv_deny", { review: false });
+  saveReview(dir, "deny", [{ severity: "block", message: "reads a cookie value" }, "style nit"], hashSource(dir), "rv_deny");
+  const rs = await reasonsOf("rv_deny", dir, { trustedRun: fakeRun(dir, 3, 3) });
+  assert.match(rs.find((x) => x.code === "review").message, /deny.*reads a cookie value/);
+  assert.ok(!existsSync(join(home, "tools", "rv_deny")));
+});
+test("review gate: an edit after the review makes it stale and refuses", async () => {
+  const dir = draft("rv_stale");
+  writeFileSync(join(dir, "tool.mjs"), SRC + "// edited after review\n");
+  assert.match(reviewProblem(dir, "rv_stale"), /stale/);
+  const rs = await reasonsOf("rv_stale", dir, { trustedRun: fakeRun(dir, 3, 3) });
+  assert.match(rs.find((x) => x.code === "review").message, /stale/);
+  // editing only the manifest is stale too
+  const dir2 = draft("rv_stale2");
+  writeFileSync(join(dir2, "tool.json"), JSON.stringify(manifest({ description: "changed" })));
+  assert.match(reviewProblem(dir2, "rv_stale2"), /stale/);
+  assert.ok(!existsSync(join(home, "tools", "rv_stale")) && !existsSync(join(home, "tools", "rv_stale2")));
+});
+test("review gate: an allow for the current hash publishes and review.json lands in the tool folder", async () => {
+  const dir = draft("rv_ok", { review: false });
+  const hash = hashSource(dir);
+  saveReview(dir, "allow", ["scope ok"], hash, "rv_ok");
+  await publishDraft("rv_ok", dir, { trustedRun: fakeRun(dir, 3, 3) });
+  const copied = JSON.parse(readFileSync(join(home, "tools", "rv_ok", "review.json"), "utf8"));
+  assert.equal(copied.verdict, "allow");
+  assert.equal(copied.sourceHash, hash);
+});
+test("review gate: a forged hash that is not the draft's is stale, a review for the wrong draft is stale", () => {
+  const dir = draft("rv_forge", { review: false });
+  saveReview(dir, "allow", [], "0".repeat(64), "rv_forge");
+  assert.match(reviewProblem(dir, "rv_forge"), /stale/);
+});
+test("saveReview / parseFindings validate input (InvalidInput, code invalid_input)", () => {
+  const dir = draft("rv_val", { review: false });
+  const h = hashSource(dir);
+  const code = (f) => { try { f(); } catch (e) { return e.code; } return "none"; };
+  assert.equal(code(() => saveReview(dir, "maybe", [], h, "rv_val")), "invalid_input");
+  assert.equal(code(() => saveReview(dir, "allow", [], "abc", "rv_val")), "invalid_input");
+  assert.equal(code(() => saveReview(dir, "allow", "nope", h, "rv_val")), "invalid_input");
+  assert.equal(code(() => saveReview(join(home, "drafts", "ghost2"), "allow", [], h, "ghost2")), "invalid_input");
+  assert.equal(code(() => parseFindings([{ severity: "fatal", message: "x" }])), "invalid_input");
+  assert.deepEqual(parseFindings(["a", { message: "b", severity: "warn" }]), [{ severity: "info", message: "a" }, { severity: "warn", message: "b" }]);
+  assert.equal(readReview(dir), undefined, "nothing was written by the rejected calls");
+});
+test("MintSession.submitReview reports whether the review is current", () => {
+  const dir = draft("rv_sess", { review: false });
+  const s = new MintSession();
+  const ok = s.submitReview("rv_sess", "allow", [], hashSource(dir));
+  assert.equal(ok.current, true);
+  const stale = s.submitReview("rv_sess", "allow", [], "f".repeat(64));
+  assert.equal(stale.current, false);
+  assert.equal(stale.currentHash, hashSource(dir));
+});
+
+test("review gate: hand-edited review.json without findings refuses with a review reason, not a TypeError", async () => {
+  const dir = draft("rv_nofind", { review: false });
+  writeFileSync(join(dir, "review.json"), JSON.stringify({ verdict: "deny", sourceHash: hashSource(dir) }));
+  const rs = await reasonsOf("rv_nofind", dir, { trustedRun: fakeRun(dir, 3, 3) });
+  assert.match(rs.find((x) => x.code === "review").message, /deny/);
+});
+test("review gate: a directory named review.json counts as no review", async () => {
+  const dir = draft("rv_isdir", { review: false });
+  mkdirSync(join(dir, "review.json"));
+  const rs = await reasonsOf("rv_isdir", dir, { trustedRun: fakeRun(dir, 3, 3) });
+  assert.match(rs.find((x) => x.code === "review").message, /no review/);
+});
+test("review gate: editing cases.json after the review is stale", async () => {
+  const dir = draft("rv_cases");
+  writeFileSync(join(dir, "tests", "cases.json"), JSON.stringify(cases(4)));
+  const rs = await reasonsOf("rv_cases", dir, { trustedRun: fakeRun(dir, 4, 4) });
+  assert.match(rs.find((x) => x.code === "review").message, /cases\.json changed/);
+});
+test("review gate: a review copied from another draft is refused (name mismatch)", async () => {
+  const a = draft("rv_a");
+  const b = draft("rv_b", { review: false });
+  writeFileSync(join(b, "review.json"), readFileSync(join(a, "review.json")));
+  const rs = await reasonsOf("rv_b", b, { trustedRun: fakeRun(b, 3, 3) });
+  assert.match(rs.find((x) => x.code === "review").message, /different tool/);
 });

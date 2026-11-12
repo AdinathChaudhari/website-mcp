@@ -1,0 +1,25 @@
+{
+  "name": "quotes_page",
+  "description": "Read the quotes shown on the open quotes.toscrape.com tab.",
+  "kind": "page",
+  "effect": "read",
+  "site": { "allowedOrigins": ["https://quotes.toscrape.com"] },
+  "page": { "urlPattern": "/*", "world": "USER_SCRIPT", "tab": "existing", "needsVisible": false },
+  "minIntervalSec": 0,
+  "timeoutSec": 30,
+  "input": { "type": "object", "properties": {}, "additionalProperties": false },
+  "output": {
+    "type": "object",
+    "properties": {
+      "quotes": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": { "text": { "type": "string" }, "author": { "type": "string" } },
+          "required": ["text", "author"]
+        }
+      }
+    },
+    "required": ["quotes"]
+  }
+}

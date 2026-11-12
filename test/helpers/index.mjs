@@ -72,3 +72,11 @@ export async function waitFor(fn, ms = 5000) {
   }
   return false;
 }
+
+/** Write an allow review for the draft's CURRENT source, as a reviewer + submit_review would. */
+export async function approve(draftDir, verdict = "allow", findings = []) {
+  const { hashSource, hashCases } = await import("../../dist/mint/tests.js");
+  const review = { verdict, findings, sourceHash: hashSource(draftDir), name: draftDir.split("/").pop(), casesHash: hashCases(draftDir), reviewedAt: new Date().toISOString() };
+  writeFileSync(join(draftDir, "review.json"), JSON.stringify(review, null, 2) + "\n");
+  return review;
+}

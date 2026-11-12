@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { start } from "../fixtures/site/server.mjs";
-import { installFixtureTool, startMcp, tempHome, rm, waitFor } from "../helpers/index.mjs";
+import { approve, installFixtureTool, startMcp, tempHome, rm, waitFor } from "../helpers/index.mjs";
 
 let site, home, mcp;
 before(async () => {
@@ -30,6 +30,7 @@ test("a copy of the fixture tool with ONE broken selector: test fails, publish r
   const failing = t.v.results.filter((r) => !r.pass).map((r) => r.name);
   assert.deepEqual(failing, ["tag_alpha", "tag_beta", "tag_gamma"]);
   assert.equal(t.v.passRate, 0.5);
+  await approve(join(home, "drafts", "fixture_broken")); // review is fine; the cases are what fail
   const p = await mcp.call("publish_tool", { name: "fixture_broken" });
   assert.equal(p.isError, true);
   assert.equal(p.v.error.code, "publish_refused");
@@ -43,6 +44,7 @@ test("control: the unmutated copy publishes (so the selector change is what fail
   installFixtureTool(home, "fixture_search", site.url, "drafts", { as: "fixture_ok" });
   const t = await mcp.call("test_tool", { name: "fixture_ok", which: "draft" });
   assert.equal(t.v.passRate, 1);
+  await approve(join(home, "drafts", "fixture_ok"));
   const p = await mcp.call("publish_tool", { name: "fixture_ok" });
   assert.equal(p.isError, false, JSON.stringify(p.v));
   assert.equal(p.v.version, 1);
@@ -54,6 +56,7 @@ test("publish emits tools/list_changed and the new tool is callable in the same 
   installFixtureTool(home, "fixture_search", site.url, "drafts", { as: "fixture_live" });
   assert.ok(!(await names()).includes("fixture_live"), "a draft is not a callable tool");
   const before = mcp.state.changed;
+  await approve(join(home, "drafts", "fixture_live"));
   const p = await mcp.call("publish_tool", { name: "fixture_live" });
   assert.equal(p.isError, false, JSON.stringify(p.v));
   assert.ok(await waitFor(() => mcp.state.changed > before), "tools/list_changed received");

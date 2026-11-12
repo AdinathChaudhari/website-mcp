@@ -1,0 +1,1 @@
+../../plugin/agents/website-mcp-reviewer.md

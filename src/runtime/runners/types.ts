@@ -1,7 +1,8 @@
 import type { ToolManifest } from "../load.js";
 
 export type ToolFn = (args: {
-  page: unknown;
+  /** Playwright Page for kind "browser"; absent for page tools (they run in the user's tab). */
+  page?: unknown;
   input: unknown;
   wm: unknown;
 }) => Promise<unknown>;
@@ -9,6 +10,8 @@ export type ToolFn = (args: {
 export interface RunContext {
   manifest: ToolManifest;
   fn: ToolFn;
+  /** Directory of the loaded tool (page tools read their source + hash from it). */
+  dir: string;
   input: unknown;
   signal: AbortSignal;
 }

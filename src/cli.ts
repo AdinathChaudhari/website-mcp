@@ -9,7 +9,11 @@ const USAGE = `Usage:
   website-mcp run <name> --input '<json>'
   website-mcp list
   website-mcp test <name> [--draft]
-  website-mcp publish <name>`;
+  website-mcp review <name> allow|deny [--findings '<json array>']
+  website-mcp publish <name>
+  website-mcp bridge install [--browser brave|chrome|chromium|edge]
+  website-mcp bridge status
+  website-mcp bridge uninstall [--browser brave|chrome|chromium|edge]`;
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
@@ -75,6 +79,35 @@ async function main(argv: string[]): Promise<number> {
         return 1;
       }
     }
+    case "review": {
+      // A human review of the CURRENT draft (hash computed here). The MCP flow uses submit_review with the
+      // reviewer subagent's hash instead.
+      const [name, verdict] = rest;
+      if (!name || !verdict || name.startsWith("--")) {
+        console.error(USAGE);
+        return 2;
+      }
+      const fi = rest.indexOf("--findings");
+      let findings: unknown = [];
+      if (fi >= 0) {
+        try {
+          findings = JSON.parse(rest[fi + 1] ?? "");
+        } catch {
+          console.log(JSON.stringify({ error: { code: "invalid_input", message: "--findings is not valid JSON" } }));
+          return 1;
+        }
+      }
+      const { MintSession } = await import("./mint/session.js");
+      const { hashSource } = await import("./mint/tests.js");
+      try {
+        const s = new MintSession();
+        console.log(JSON.stringify(s.submitReview(name, verdict, findings, hashSource(s.draftDir(name))), null, 2));
+        return 0;
+      } catch (e) {
+        console.log(JSON.stringify(toErrorPayload(e), null, 2));
+        return 1;
+      }
+    }
     case "publish": {
       const name = rest[0];
       if (!name || name.startsWith("--")) {
@@ -90,6 +123,54 @@ async function main(argv: string[]): Promise<number> {
         console.log(JSON.stringify(toErrorPayload(e), null, 2));
         return 1;
       }
+    }
+    case "bridge": {
+      const [sub, ...brest] = rest;
+      const bi = brest.indexOf("--browser");
+      const browser = bi >= 0 ? brest[bi + 1] : "brave";
+      const { BROWSERS, installBridge, uninstallBridge, manifestPathFor } = await import("./bridge/install.js");
+      if (!(BROWSERS as readonly string[]).includes(browser ?? "")) {
+        console.error(USAGE);
+        return 2;
+      }
+      const b = browser as (typeof BROWSERS)[number];
+      if (sub === "install") {
+        try {
+          const r = installBridge({ browser: b });
+          console.log(`Installed the native host for ${b}.\n  manifest: ${r.manifestPath}\n  wrapper:  ${r.wrapperPath}\n  extension ID: ${r.extensionId}`);
+          console.log("Next: load extension/ unpacked, turn on \"Allow User Scripts\" for it, restart the browser, then run `website-mcp bridge status`.");
+          return 0;
+        } catch (e) {
+          console.log(JSON.stringify(toErrorPayload(e)));
+          return 1;
+        }
+      }
+      if (sub === "uninstall") {
+        console.log(JSON.stringify(uninstallBridge({ browser: b }), null, 2));
+        return 0;
+      }
+      if (sub === "status") {
+        const { bridgeRequest } = await import("./bridge/client.js");
+        const { existsSync } = await import("node:fs");
+        const { BROWSERS: ALL, wrapperPathFor, wrapperNodePath } = await import("./bridge/install.js");
+        const have = ALL.filter((x) => existsSync(manifestPathFor({ browser: x })));
+        console.log(`host manifest: ${have.length ? `installed for ${have.join(", ")}` : "none installed (run `website-mcp bridge install --browser <name>`)"}`);
+        const wn = wrapperNodePath(wrapperPathFor());
+        if (wn && !existsSync(wn)) console.log(`WARNING: node at ${wn} no longer exists (node upgraded?); re-run \`website-mcp bridge install\``);
+        try {
+          const r = (await bridgeRequest({ type: "status" }, { timeoutMs: 5000 })) as {
+            protocolVersion: number;
+            extension: { version: number; extVersion?: string } | null;
+          };
+          console.log(`connected\nhost protocol: ${r.protocolVersion}\nextension: ${r.extension ? `version ${r.extension.extVersion ?? "?"}, protocol ${r.extension.version}` : "no hello yet"}`);
+          return 0;
+        } catch (e) {
+          console.log(`not connected: ${(e as Error).message}`);
+          return 1;
+        }
+      }
+      console.error(USAGE);
+      return 2;
     }
     default:
       console.error(USAGE);

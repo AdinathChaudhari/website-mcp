@@ -15,9 +15,21 @@ export interface ToolManifest {
   output: object;
   site?: { allowedOrigins?: string[] };
   timeoutSec?: number;
+  /** Minimum seconds between runs of this tool (page tools; enforced by the runner/extension). */
+  minIntervalSec?: number;
+  /** kind "page" only: how the tool is delivered to the user's open tab. */
+  page?: PageBlock;
   version?: number;
   /** Dot path to the output's main list (used by "empty" test cases). Default: first array property. */
   resultsPath?: string;
+}
+
+export interface PageBlock {
+  /** Path glob matched against tab URLs within site.allowedOrigins, e.g. "/account/*". */
+  urlPattern?: string;
+  world?: "USER_SCRIPT" | "MAIN";
+  tab?: "existing";
+  needsVisible?: boolean;
 }
 
 export interface LoadedTool {
@@ -58,6 +70,31 @@ export function assertManifestShape(m: { input?: unknown; output?: unknown; site
   }
 }
 
+/** Validates the optional "page" block and minIntervalSec. A "page" block is only legal on kind "page". */
+export function assertPageBlock(m: { kind?: unknown; page?: unknown; minIntervalSec?: unknown }, label: string): void {
+  if (m.minIntervalSec !== undefined && !(typeof m.minIntervalSec === "number" && m.minIntervalSec >= 0)) {
+    throw new Error(`${label}: minIntervalSec must be a number >= 0`);
+  }
+  if (m.page === undefined) return;
+  if (m.kind !== "page") throw new Error(`${label}: a "page" block is only allowed with kind "page"`);
+  const p = m.page as Record<string, unknown>;
+  if (p === null || typeof p !== "object" || Array.isArray(p)) throw new Error(`${label}: "page" must be an object`);
+  for (const k of Object.keys(p)) {
+    if (!["urlPattern", "world", "tab", "needsVisible"].includes(k)) throw new Error(`${label}: unknown page.${k}`);
+  }
+  if (p.urlPattern !== undefined && (typeof p.urlPattern !== "string" || !p.urlPattern.startsWith("/"))) {
+    throw new Error(`${label}: page.urlPattern must be a path glob starting with "/"`);
+  }
+  if (p.world !== undefined && p.world !== "USER_SCRIPT" && p.world !== "MAIN") throw new Error(`${label}: page.world must be "USER_SCRIPT" or "MAIN"`);
+  if (p.tab !== undefined && p.tab !== "existing") throw new Error(`${label}: page.tab must be "existing"`);
+  if (p.needsVisible !== undefined && typeof p.needsVisible !== "boolean") throw new Error(`${label}: page.needsVisible must be a boolean`);
+}
+
+/** Page tools are serialised and run inside a tab, so they cannot import anything. Fails closed on any import. */
+export function assertPageSource(source: string, label: string): void {
+  if (/\bimport\b\s*(\(|[\w{*"'])/.test(source)) throw new Error(`${label}: a page tool must not import anything (it runs inside the page)`);
+}
+
 export function listToolNames(): string[] {
   const dir = toolsDir();
   if (!existsSync(dir)) return [];
@@ -77,6 +114,7 @@ export function readManifest(name: string, base: string = toolsDir()): ToolManif
     throw new Error(`${name}: unknown kind "${String(m.kind)}"`);
   }
   assertManifestShape(m, name);
+  assertPageBlock(m, name);
   assertSchema(m.input, `${name} input`);
   assertSchema(m.output, `${name} output`);
   return { ...(m as ToolManifest), name };
@@ -87,6 +125,7 @@ export async function loadTool(name: string, base: string = toolsDir()): Promise
   const dir = join(base, name);
   const file = join(dir, "tool.mjs");
   if (!existsSync(file)) throw new ToolNotFound(name);
+  if (manifest.kind === "page") assertPageSource(readFileSync(file, "utf8"), name);
   // Cache-busting query so a re-saved tool is re-imported in a long-lived server.
   const mod = (await import(`${pathToFileURL(file).href}?v=${statSync(file).mtimeMs}-${statSync(file).size}`)) as {
     default?: ToolFn;

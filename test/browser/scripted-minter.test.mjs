@@ -67,6 +67,14 @@ test("open -> snapshot -> explore -> save -> cases -> test -> publish -> call", 
   const t = await call("test_tool", { name: "fixture_list", which: "draft" });
   assert.equal(t.v.passRate, 1, JSON.stringify(t.v.results));
 
+  // Review gate, end to end through the MCP tools: no review -> refused; allow with the saved hash -> published.
+  const noReview = await call("publish_tool", { name: "fixture_list" });
+  assert.equal(noReview.isError, true);
+  assert.ok(noReview.v.error.reasons.some((r) => r.code === "review"), JSON.stringify(noReview.v));
+  const sub = await call("submit_review", { name: "fixture_list", verdict: "allow", findings: ["read-only, origin pinned"], sourceHash: saved.v.sourceHash });
+  assert.equal(sub.isError, false, JSON.stringify(sub.v));
+  assert.equal(sub.v.current, true);
+
   const before = state.changed;
   const pub = await call("publish_tool", { name: "fixture_list" });
   assert.equal(pub.isError, false, JSON.stringify(pub.v));
@@ -80,7 +88,10 @@ test("open -> snapshot -> explore -> save -> cases -> test -> publish -> call", 
   assert.equal((await call("fixture_list", { page: 1 })).v.hasNext, true);
 
   const files = readdirSync(join(home, "tools", "fixture_list")).sort();
-  assert.deepEqual(files, ["README.md", "tests", "tool.json", "tool.mjs"]);
+  assert.deepEqual(files, ["README.md", "review.json", "tests", "tool.json", "tool.mjs"]);
   const rerun = await call("test_tool", { name: "fixture_list", which: "published" });
   assert.equal(rerun.v.passRate, 1);
+  const copied = JSON.parse(readFileSync(join(home, "tools", "fixture_list", "review.json"), "utf8"));
+  assert.equal(copied.verdict, "allow");
+  assert.equal(copied.sourceHash, saved.v.sourceHash);
 });

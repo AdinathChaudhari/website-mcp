@@ -1,5 +1,7 @@
 # authoring/
 
-Phase 3+ — minter guidance served by the `guide(topic)` tool: core, testing, pagination, search, page-tools, writes, publication. Original text.
+Minter guidance served by the `guide(topic)` MCP tool. Each `<topic>.md` here is a topic:
+`core`, `testing`, `pagination`, `search`, `publication`. `README.md` is not a topic.
 
-Empty until that phase. See `docs/01-planning/PLAN v2.md` §5.
+Add a topic by adding a file; the tool lists the directory. Page tools and writes get their guides in later phases.
+Original text, informed by the structure of the MIT-licensed Pomerado authoring guides; nothing is copied.

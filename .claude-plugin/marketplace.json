@@ -1,0 +1,12 @@
+{
+  "name": "website-mcp",
+  "description": "website-mcp: mint websites into deterministic tools from Claude Code.",
+  "owner": { "name": "website-mcp contributors" },
+  "plugins": [
+    {
+      "name": "website-mcp",
+      "source": "./plugin",
+      "description": "The /website-mcp:mint skill, the website-mcp-reviewer subagent and the website-mcp MCP server."
+    }
+  ]
+}

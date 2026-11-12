@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { paginate, waitForOutcome } from "../../browser/waits.js";
 import { InvalidInput, ToolFailed } from "../errors.js";
 import type { Runner, RunContext } from "./types.js";
 
@@ -6,6 +7,10 @@ import type { Runner, RunContext } from "./types.js";
 export function makeHelper() {
   return {
     InvalidInput,
+    /** Wait for whichever of several named outcomes appears first; resolves with its name. */
+    waitForOutcome,
+    /** Collect rows across pages by clicking next. See src/browser/waits.ts. */
+    paginate,
     log: (...args: unknown[]) => {
       // stderr only: stdout is reserved for results and the MCP transport.
       process.stderr.write(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ") + "\n");

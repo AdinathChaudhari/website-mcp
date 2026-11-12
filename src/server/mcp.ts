@@ -6,6 +6,7 @@ import { ariaSnapshot, capResult } from "../browser/snapshot.js";
 import { toErrorPayload } from "../runtime/errors.js";
 import { MintSession, RESERVED_NAMES } from "../mint/session.js";
 import { listToolNames, readManifest } from "../runtime/load.js";
+import { readGuide } from "./guides.js";
 import { runTool } from "../runtime/run.js";
 
 const FIXED = RESERVED_NAMES;
@@ -57,7 +58,7 @@ const fixedTools = [
   {
     name: "save_tool",
     description:
-      "Save a DRAFT tool (it is not callable as a tool until published). `tool` is the tool.json object (description, input, output JSON Schemas, effect \"read\", kind default \"browser\", site.allowedOrigins, optional resultsPath = dot path to the output's main list). `source` is the tool.mjs text with a default export `async ({ page, input, wm }) => result`. Next: save_cases, test_tool, publish_tool.",
+      "Save a DRAFT tool (it is not callable as a tool until published). `tool` is the tool.json object (description, input, output JSON Schemas, effect \"read\", kind default \"browser\", site.allowedOrigins, optional resultsPath = dot path to the output's main list). `source` is the tool.mjs text with a default export `async ({ page, input, wm }) => result`. Next: save_cases, test_tool, the website-mcp-reviewer subagent, submit_review, publish_tool.",
     inputSchema: obj(
       {
         name: { type: "string", description: "^[a-z][a-z0-9_]{1,62}$" },
@@ -81,13 +82,33 @@ const fixedTools = [
   {
     name: "publish_tool",
     description:
-      "Publish a draft as a callable tool. Refuses (with reasons naming failing cases) below 70% pass or under 3 cases, on schema errors, literal URLs outside site.allowedOrigins (a text heuristic: the runtime route guard is the real enforcement), or secret-shaped literals. The draft is copied first and the cases always run on that copy unless this session just tested the same files. Keeps the previous version in .history/<n>/.",
+      "Publish a draft as a callable tool. Refuses without an allow review whose sourceHash matches the current draft (see submit_review), and (with reasons naming failing cases) below 70% pass or under 3 cases, on schema errors, literal URLs outside site.allowedOrigins (a text heuristic: the runtime route guard is the real enforcement), or secret-shaped literals. The draft is copied first and the cases always run on that copy unless this session just tested the same files. Keeps the previous version in .history/<n>/.",
     inputSchema: obj({ name: { type: "string" } }, ["name"]),
+  },
+  {
+    name: "guide",
+    description:
+      "Minting guidance. topic is one of the authoring guides (core, testing, pagination, search, publication); read core first, and the others when the task involves them. An unknown or missing topic returns the list of topics.",
+    inputSchema: obj({ topic: { type: "string" } }),
+  },
+  {
+    name: "submit_review",
+    description:
+      "Record the website-mcp-reviewer subagent's verdict on a DRAFT: verdict \"allow\" or \"deny\", findings (strings or { severity: info|warn|block, message }), and the sourceHash the reviewer reviewed (from save_tool's result). Saves drafts/<name>/review.json. publish_tool refuses unless the verdict is allow and sourceHash still equals the draft's current hash (any edit to tool.mjs or tool.json after the review makes it stale).",
+    inputSchema: obj(
+      {
+        name: { type: "string" },
+        verdict: { type: "string", enum: ["allow", "deny"] },
+        findings: { type: "array", items: {} },
+        sourceHash: { type: "string", description: "64-char hex hash of the reviewed draft" },
+      },
+      ["name", "verdict", "findings", "sourceHash"],
+    ),
   },
   { name: "list_tools", description: "List saved tools.", inputSchema: obj({}) },
   {
     name: "run_tool",
-    description: "Run a published tool by name in a fresh browser context (no model involved). Set draft:true to run the draft instead.",
+    description: "Run a published tool by name with no model involved: browser tools in a fresh Playwright context, page tools in the matching open tab of the user's own browser via the page bridge. Set draft:true to run the draft instead.",
     inputSchema: obj({ name: { type: "string" }, input: { type: "object" }, draft: { type: "boolean" } }, ["name"]),
   },
 ];
@@ -157,6 +178,10 @@ export async function startServer(): Promise<void> {
           const run = args.which === "published" ? await session.testPublished(n) : await session.testDraft(n);
           return text(run, "test_tool");
         }
+        case "guide":
+          return text(readGuide(args.topic), "guide");
+        case "submit_review":
+          return text(session.submitReview(args.name, args.verdict, args.findings, args.sourceHash), "submit_review");
         case "publish_tool":
           return text(await session.publish(args.name), "publish_tool");
         case "list_tools":

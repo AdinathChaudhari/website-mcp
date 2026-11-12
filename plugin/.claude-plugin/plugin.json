@@ -1,0 +1,9 @@
+{
+  "name": "website-mcp",
+  "displayName": "website-mcp",
+  "version": "0.1.0",
+  "description": "Turn a website into a tested, deterministic tool: Claude Code explores once and saves a script; the saved tool then runs with no model.",
+  "author": { "name": "website-mcp contributors" },
+  "license": "MIT",
+  "keywords": ["mcp", "browser", "playwright", "automation", "scraping"]
+}

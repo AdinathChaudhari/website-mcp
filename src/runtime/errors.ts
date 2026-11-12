@@ -4,7 +4,16 @@ export type ErrorCode =
   | "invalid_output"
   | "tool_failed"
   | "timeout"
-  | "publish_refused";
+  | "publish_refused"
+  // page-bridge codes (kept upper-case: they are the wire codes from src/bridge/protocol.ts)
+  | "NO_BRIDGE"
+  | "NO_TAB"
+  | "SITE_NOT_GRANTED"
+  | "USER_SCRIPTS_OFF"
+  | "TAB_HIDDEN"
+  | "TIMEOUT"
+  | "SCRIPT_ERROR"
+  | "PROTOCOL_MISMATCH";
 
 export class WebsiteMcpError extends Error {
   readonly code: ErrorCode;
@@ -47,6 +56,12 @@ export class Timeout extends WebsiteMcpError {
 export class PublishRefused extends WebsiteMcpError {
   constructor(message: string, reasons: unknown) {
     super("publish_refused", message, reasons);
+  }
+}
+
+export class BridgeError extends WebsiteMcpError {
+  constructor(code: Extract<ErrorCode, Uppercase<ErrorCode>>, message: string, details?: unknown) {
+    super(code, message, details);
   }
 }
 

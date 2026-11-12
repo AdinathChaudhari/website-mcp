@@ -3,11 +3,12 @@ import { join } from "node:path";
 import { InvalidInput } from "../runtime/errors.js";
 import { NAME_RE, draftsDir, readManifest, toolsDir } from "../runtime/load.js";
 import { runTool } from "../runtime/run.js";
+import { saveReview, type Review } from "./review.js";
 import { publishDraft, staticChecks, type PublishResult } from "./publish.js";
 import { hashCases, hashSource, parseCases, readLastRun, runCases, type LastRun } from "./tests.js";
 
 /** Names the MCP server uses for its own tools; a minted tool may not take them. */
-export const RESERVED_NAMES = ["open", "snapshot", "explore", "save_tool", "save_cases", "test_tool", "publish_tool", "list_tools", "run_tool"];
+export const RESERVED_NAMES = ["open", "snapshot", "explore", "save_tool", "save_cases", "test_tool", "publish_tool", "list_tools", "run_tool", "guide", "submit_review"];
 
 export interface MintSessionOptions {
   /** Called after a successful publish (the server uses it to send tools/list_changed). */
@@ -51,7 +52,9 @@ export class MintSession {
       draft: dir,
       publishedVersion: published ?? null,
       problems: problems.map((p) => p.message),
-      next: "save_cases (>=3, include an empty and an invalid_input case), test_tool, publish_tool",
+      /** Hash of tool.mjs + tool.json. The reviewer reports it back; submit_review and publish compare it. */
+      sourceHash: hashSource(dir),
+      next: "save_cases (>=3, include an empty and an invalid_input case), test_tool, review with the website-mcp-reviewer subagent, submit_review, publish_tool",
     };
   }
 
@@ -90,6 +93,15 @@ export class MintSession {
     const run = readLastRun(dir);
     const fresh = !!run && run.sourceHash === hashSource(dir) && run.casesHash === hashCases(dir);
     return { run, fresh };
+  }
+
+  /** Record a reviewer's verdict for the draft. It counts only while the draft's source hash still equals `sourceHash`. */
+  submitReview(name: unknown, verdict: unknown, findings: unknown, sourceHash: unknown): { saved: string; review: Review; currentHash: string; current: boolean } {
+    this.assertName(name);
+    const dir = this.draftDir(name);
+    const review = saveReview(dir, verdict, findings, sourceHash, name);
+    const currentHash = hashSource(dir);
+    return { saved: name, review, currentHash, current: review.sourceHash === currentHash };
   }
 
   async publish(name: unknown): Promise<PublishResult> {

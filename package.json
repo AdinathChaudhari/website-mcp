@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test \"test/unit/*.test.mjs\" \"test/browser/*.test.mjs\"",
+    "test": "npm run build && node --test \"test/unit/*.test.mjs\" \"test/browser/*.test.mjs\" \"test/extension/*.test.mjs\"",
     "serve": "node dist/cli.js serve"
   },
   "engines": {

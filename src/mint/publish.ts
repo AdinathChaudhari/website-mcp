@@ -1,14 +1,15 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PublishRefused } from "../runtime/errors.js";
 import { NAME_RE, assertManifestShape, homeDir, toolsDir } from "../runtime/load.js";
 import { assertSchema } from "../runtime/schema.js";
+import { reviewProblem } from "./review.js";
 import { MIN_CASES, MIN_PASS_RATE, hashCases, hashSource, readCases, runCases, type LastRun } from "./tests.js";
 
 export interface Reason {
-  code: "no_draft" | "too_few_cases" | "bad_cases" | "pass_rate" | "bad_manifest" | "bad_schema" | "bad_source" | "origin" | "secret";
+  code: "no_draft" | "too_few_cases" | "bad_cases" | "pass_rate" | "bad_manifest" | "bad_schema" | "bad_source" | "origin" | "secret" | "review";
   message: string;
   /** Failing case names, for pass_rate refusals. */
   cases?: string[];
@@ -142,7 +143,7 @@ export interface PublishOptions {
 
 /**
  * Publish a draft. Refuses (PublishRefused, with a `reasons` list) unless the draft has >= 3 cases,
- * passes static checks, and a test run on the CURRENT source+cases passes >= 70%.
+ * passes static checks, has a review.json with verdict "allow" for exactly this source (hashSource), and a test run on the CURRENT source+cases passes >= 70%.
  * The draft is first copied into a private stage directory; every check, the test run and the publish read
  * that one copy, so the draft cannot change between check and publish. Unless the caller passes a matching
  * in-memory `trustedRun`, the cases are run against the staged copy. On success the previous published
@@ -162,8 +163,13 @@ export async function publishDraft(name: string, draftDir: string, opts: Publish
 async function publishFromStage(name: string, draftDir: string, stageRoot: string, opts: PublishOptions): Promise<PublishResult> {
   const snap = join(stageRoot, name);
   mkdirSync(join(snap, "tests"), { recursive: true });
-  for (const f of ["tool.json", "tool.mjs", join("tests", "cases.json")]) {
-    if (existsSync(join(draftDir, f))) copyFileSync(join(draftDir, f), join(snap, f));
+  for (const f of ["tool.json", "tool.mjs", "review.json", join("tests", "cases.json")]) {
+    // isFile, not existsSync: a directory named review.json must not crash copyFileSync (it counts as "no review").
+    try {
+      if (statSync(join(draftDir, f)).isFile()) copyFileSync(join(draftDir, f), join(snap, f));
+    } catch {
+      /* missing */
+    }
   }
   const reasons = staticChecks(snap);
   let cases: ReturnType<typeof readCases> = [];
@@ -176,6 +182,11 @@ async function publishFromStage(name: string, draftDir: string, stageRoot: strin
     if (cases.length < MIN_CASES) {
       reasons.push({ code: "too_few_cases", message: `need at least ${MIN_CASES} test cases, found ${cases.length}; save_cases first` });
     }
+  }
+  if (!reasons.some((r) => r.code === "no_draft")) {
+    // Checked on the staged copy, so an edit after this point cannot slip past the reviewed hash.
+    const rp = reviewProblem(snap, name);
+    if (rp) reasons.push({ code: "review", message: rp });
   }
   if (reasons.length) throw refusal(name, reasons);
 
@@ -215,6 +226,7 @@ async function publishFromStage(name: string, draftDir: string, stageRoot: strin
     writeFileSync(join(stage, "tool.json"), JSON.stringify({ ...draftManifest, name, version }, null, 2) + "\n");
     writeFileSync(join(stage, "tool.mjs"), readFileSync(join(snap, "tool.mjs")));
     writeFileSync(join(stage, "tests", "cases.json"), readFileSync(join(snap, "tests", "cases.json")));
+    writeFileSync(join(stage, "review.json"), readFileSync(join(snap, "review.json")));
     writeFileSync(join(stage, "tests", "last-run.json"), JSON.stringify(lastRun, null, 2) + "\n");
     const desc = typeof draftManifest.description === "string" ? draftManifest.description : "";
     writeFileSync(join(stage, "README.md"), `# ${name}\n\n${desc}\n\nRun: \`website-mcp run ${name} --input '{}'\`\nTest: \`website-mcp test ${name}\`\n`);

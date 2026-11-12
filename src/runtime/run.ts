@@ -1,11 +1,13 @@
 import { InvalidInput, InvalidOutput, Timeout, ToolFailed, WebsiteMcpError } from "./errors.js";
 import { draftsDir, loadTool, toolsDir } from "./load.js";
 import { PlaywrightRunner } from "./runners/playwright.js";
+import { PageRunner } from "./runners/page.js";
 import type { Runner } from "./runners/types.js";
 import { validate } from "./schema.js";
 
 const runners: Record<string, Runner> = {
   browser: new PlaywrightRunner(),
+  page: new PageRunner(),
 };
 
 export interface RunOptions {
@@ -37,7 +39,7 @@ export async function runTool(name: string, input: unknown, opts: RunOptions = {
 
   let result: unknown;
   try {
-    result = await Promise.race([runner.run({ manifest, fn: tool.fn, input, signal: ac.signal }), timeout]);
+    result = await Promise.race([runner.run({ manifest, fn: tool.fn, dir: tool.dir, input, signal: ac.signal }), timeout]);
   } catch (e) {
     if (e instanceof WebsiteMcpError) throw e;
     throw new ToolFailed(e instanceof Error ? e.message : String(e));
