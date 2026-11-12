@@ -1,21 +1,27 @@
 import { chromium } from "playwright";
 import { paginate, waitForOutcome } from "../../browser/waits.js";
 import { InvalidInput, ToolFailed } from "../errors.js";
+import type { WriteState } from "../write.js";
 import type { Runner, RunContext } from "./types.js";
 
 /** The helper object handed to every tool as `wm`. Kept tiny; later phases extend it. */
-export function makeHelper() {
-  return {
+export function makeHelper(write?: WriteState) {
+  return Object.freeze({
     InvalidInput,
     /** Wait for whichever of several named outcomes appears first; resolves with its name. */
     waitForOutcome,
     /** Collect rows across pages by clicking next. See src/browser/waits.ts. */
     paginate,
+    /** Writes only: wm.commit(mark, fn) is the one place a tool may save or submit. With input.dryRun it does not call fn. */
+    commit: (mark: unknown, fn: unknown) => {
+      if (!write) throw new ToolFailed('wm.commit is only for tools with effect "write"');
+      return write.commit(mark, fn);
+    },
     log: (...args: unknown[]) => {
       // stderr only: stdout is reserved for results and the MCP transport.
       process.stderr.write(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ") + "\n");
     },
-  };
+  });
 }
 
 export class PlaywrightRunner implements Runner {
@@ -47,7 +53,7 @@ export class PlaywrightRunner implements Runner {
           return origins.includes(origin) ? route.continue() : route.abort("blockedbyclient");
         });
       }
-      return await ctx.fn({ page, input: ctx.input, wm: makeHelper() });
+      return await ctx.fn({ page, input: ctx.input, wm: makeHelper(ctx.write) });
     } catch (e) {
       if (e instanceof InvalidInput) throw e;
       if (e instanceof ToolFailed) throw e;

@@ -158,6 +158,22 @@ const FORBIDDEN: [string, RegExp][] = [
   ["window.open", /\bwindow\s*\.\s*open\s*\(|(?<![.\w$])open\s*\(\s*["'`]/],
 ];
 
+/** Extra rules for page tools with effect "write": never press the final control. */
+const WRITE_FORBIDDEN: [string, RegExp][] = [
+  ["click() / submit() / requestSubmit() (the user presses Save, never the tool)", /\.\s*(?:click|submit|requestSubmit)\s*(?:\?\.\s*)?\(/],
+  ["the names click / submit / requestSubmit (no aliasing, destructuring or .call)", /(?<![\w$])(?<!wm\s*\.\s*)(?:click|submit|requestSubmit)(?![\w$])/],
+  [".prototype access", /\.\s*prototype\b/],
+  ["dispatchEvent (use wm.fill to set values; never synthesise a click or submit)", /\bdispatchEvent\b/],
+];
+/** Computed member access with a string-literal key, checked on the raw source (codeOnly blanks the key): `el["click"]()`. */
+const WRITE_COMPUTED_KEY = /(?:[)\]]|(?<![\w$])(?!(?:of|in|return|typeof|case|yield|await|void|delete|else|do|throw|new)(?![\w$]))[\w$]+)\s*\[\s*["'`]/g;
+
+/** True when a computed string-key access sits in real code: its `[` survives in codeOnly (not inside a comment or string literal). codeOnly keeps length, so indices line up. */
+function hasComputedKey(source: string, code: string): boolean {
+  for (const m of source.matchAll(WRITE_COMPUTED_KEY)) if (code[m.index + m[0].indexOf("[")] === "[") return true;
+  return false;
+}
+
 const KEYWORDS = new Set(
   "break case catch class const continue debugger default delete do else export extends finally for function if import in instanceof let new of return static super switch this throw try typeof var void while with yield await async get set null true false undefined arguments".split(" "),
 );
@@ -205,11 +221,16 @@ export interface PageGateReport {
 }
 
 /** Check a page tool's tool.mjs text. Empty `problems` = passes the static gate. */
-export function scanPageSource(source: string): PageGateReport {
+export function scanPageSource(source: string, opts: { write?: boolean } = {}): PageGateReport {
   const problems: string[] = [];
   const code = codeOnly(source);
   const forbidden: string[] = [];
   for (const [label, re] of FORBIDDEN) if (re.test(code)) forbidden.push(label);
+  // A write tool fills the form and hands the final control to the user. Best-effort static scan (JavaScript can always be obfuscated further); the reviewer is the second layer, the user's own Save is the boundary.
+  if (opts.write) {
+    for (const [label, re] of WRITE_FORBIDDEN) if (re.test(code)) forbidden.push(label);
+    if (hasComputedKey(source, code)) forbidden.push('computed member access with a string-literal key (write the property name with a dot)');
+  }
   if (forbidden.length) problems.push(`forbidden in a page tool: ${forbidden.join(", ")}`);
 
   // Shape: nothing but one `export default <function>` (a closure over a module-level name is impossible then).

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { LiveCapReached } from "../runtime/errors.js";
+import { BridgeError, LiveCapReached } from "../runtime/errors.js";
 
 /** Live runs a mint may spend on the real site: attempts, not passes. A hard target (bot-sensitive) gets fewer. */
 export const LIVE_CAP = 4;
@@ -22,8 +22,22 @@ export function liveRunsUsed(draftDir: string): number {
   }
 }
 
+const challengeFile = (draftDir: string): string => join(draftDir, "challenge.json");
+
+/** A live run met a challenge: no more live runs for this draft, ever (re-saving does not clear it). */
+export function markChallenged(draftDir: string, reason: string): void {
+  mkdirSync(draftDir, { recursive: true });
+  writeFileSync(challengeFile(draftDir), JSON.stringify({ reason: reason.slice(0, 300), at: new Date().toISOString() }) + "\n");
+}
+
 /** Count one live run, or throw LiveCapReached when the budget is used up. Call before touching the site. */
 export function reserveLiveRun(draftDir: string, cap: number): number {
+  if (existsSync(challengeFile(draftDir))) {
+    throw new BridgeError(
+      "CHALLENGE",
+      "an earlier live run met a challenge or block on this site, so this mint may not touch it again. Open the site yourself and deal with it, wait a good while, then start a fresh mint. Capture cases still work.",
+    );
+  }
   const used = liveRunsUsed(draftDir);
   if (used >= cap) {
     throw new LiveCapReached(

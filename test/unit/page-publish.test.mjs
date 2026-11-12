@@ -77,6 +77,15 @@ test("static gate: forbidden call, closure, bad block, signin outside the origin
   assert.ok(staticChecks(draft("gate_f", { tool: manifest({ kind: "teleport" }) })).some((r) => /kind must be/.test(r.message)));
   assert.deepEqual(staticChecks(draft("gate_ok", { signin: { marker: "a.x", loginUrl: `${O}/login` } })), []);
 });
+test("hardTarget needs minIntervalSec >= 60 to publish; a plain tool does not", () => {
+  const codes = (tool) => staticChecks(draft(`hard_${Math.random().toString(36).slice(2, 8)}`, { tool })).map((r) => r.code);
+  assert.deepEqual(codes(manifest({ hardTarget: true, minIntervalSec: 0 })), ["hard_target_interval"]);
+  assert.deepEqual(codes(manifest({ hardTarget: true, minIntervalSec: 59 })), ["hard_target_interval"]);
+  const { minIntervalSec, ...noInterval } = manifest({ hardTarget: true });
+  assert.deepEqual(codes(noInterval), ["hard_target_interval"]);
+  assert.deepEqual(codes(manifest({ hardTarget: true, minIntervalSec: 60 })), []);
+  assert.deepEqual(codes(manifest({ hardTarget: false, minIntervalSec: 0 })), []);
+});
 test("signin.json is part of the source hash (editing it changes what must be re-reviewed/approved)", () => {
   const dir = draft("hash_a");
   const h = hashSource(dir);

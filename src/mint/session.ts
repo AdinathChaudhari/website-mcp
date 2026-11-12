@@ -9,7 +9,7 @@ import { publishDraft, staticChecks, type PublishResult } from "./publish.js";
 import { hashCases, hashSource, parseCases, readLastRun, runCases, type LastRun } from "./tests.js";
 
 /** Names the MCP server uses for its own tools; a minted tool may not take them. */
-export const RESERVED_NAMES = ["open", "snapshot", "explore", "save_tool", "save_cases", "test_tool", "publish_tool", "list_tools", "run_tool", "guide", "submit_review", "page_tabs", "page_snapshot", "page_explore", "page_capture"];
+export const RESERVED_NAMES = ["open", "snapshot", "explore", "save_tool", "save_cases", "test_tool", "publish_tool", "list_tools", "run_tool", "guide", "submit_review", "page_tabs", "page_snapshot", "page_explore", "page_capture", "act", "mint_effect", "fill", "handOff", "commit"];
 
 export interface MintSessionOptions {
   /** Called after a successful publish (the server uses it to send tools/list_changed). */
@@ -23,7 +23,25 @@ export class MintSession {
   /** Page tools: source hashes that passed a live run in this session (memory only, like ownRuns). */
   private readonly livePasses = new Map<string, string>();
 
+  /** What this mint is allowed to change. "write" is opted into explicitly (mint_effect); act and write drafts need it. */
+  private effect: "read" | "write" = "read";
+
   constructor(private readonly opts: MintSessionOptions = {}) {}
+
+  setEffect(effect: unknown): { effect: "read" | "write" } {
+    if (effect !== "read" && effect !== "write") throw new InvalidInput('effect must be "read" or "write"');
+    this.effect = effect;
+    return { effect };
+  }
+
+  get mintEffect(): "read" | "write" {
+    return this.effect;
+  }
+
+  /** Throws unless this mint was started with effect "write". */
+  assertWrite(what: string): void {
+    if (this.effect !== "write") throw new InvalidInput(`${what} is only available when the mint was started with effect "write": call mint_effect({ effect: "write" }) first. A read mint cannot change anything on the site.`);
+  }
 
   draftDir(name: string): string {
     this.assertName(name);
@@ -41,6 +59,7 @@ export class MintSession {
     this.assertName(name);
     if (!tool || typeof tool !== "object" || Array.isArray(tool)) throw new InvalidInput("tool must be an object");
     if (typeof source !== "string" || !/export\s+default/.test(source)) throw new InvalidInput("source must be tool.mjs text with a default export");
+    if ((tool as { effect?: unknown }).effect === "write") this.assertWrite("a write tool");
     const dir = this.draftDir(name);
     const manifest = { ...(tool as Record<string, unknown>), name, kind: (tool as { kind?: unknown }).kind ?? "browser" };
     delete (manifest as { version?: unknown }).version;

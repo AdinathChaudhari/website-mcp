@@ -45,7 +45,7 @@ test("project-level skill and agent are symlinks to the plugin's files (one sour
 });
 
 test("tracked plugin and authoring text has no local absolute paths or personal data", () => {
-  const files = ["plugin/.claude-plugin/plugin.json", "plugin/.mcp.json", "plugin/launch.mjs", "plugin/README.md", "plugin/skills/mint/SKILL.md", "plugin/agents/website-mcp-reviewer.md", ".claude-plugin/marketplace.json", "authoring/core.md", "authoring/testing.md", "authoring/pagination.md", "authoring/search.md", "authoring/publication.md"];
+  const files = ["plugin/.claude-plugin/plugin.json", "plugin/.mcp.json", "plugin/launch.mjs", "plugin/README.md", "plugin/skills/mint/SKILL.md", "plugin/agents/website-mcp-reviewer.md", ".claude-plugin/marketplace.json", "authoring/core.md", "authoring/testing.md", "authoring/pagination.md", "authoring/search.md", "authoring/publication.md", "authoring/hard-targets.md", "docs/safety.md"];
   for (const f of files) {
     const t = readFileSync(join(ROOT, f), "utf8");
     assert.doesNotMatch(t, /\/Users\/|\/home\/[a-z]|C:\\Users|@[a-z0-9-]+\.(com|org|io)\b/i, f);
@@ -69,6 +69,7 @@ test("launch.mjs without a build next to it exits non-zero with a message that s
     copyFileSync(join(ROOT, "plugin", "launch.mjs"), join(lonely, "launch.mjs"));
     const env = { ...process.env };
     delete env.WEBSITE_MCP_ROOT;
+    delete env.WEBSITE_MCP_ALLOW_NPX;
     const r = spawnSync(process.execPath, [join(lonely, "launch.mjs")], { encoding: "utf8", env });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /cannot find the built server/);

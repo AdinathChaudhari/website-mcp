@@ -13,13 +13,15 @@ Task: $ARGUMENTS
 
 The tools below are the `website-mcp` MCP server's: `guide`, `open`, `snapshot`, `explore`, `save_tool`,
 `save_cases`, `test_tool`, `run_tool`, `submit_review`, `publish_tool`, `list_tools`, and for page tools
-`page_tabs`, `page_snapshot`, `page_explore`, `page_capture`.
+`page_tabs`, `page_snapshot`, `page_explore`, `page_capture`, and for write mints `mint_effect`, `act`.
 
 ## First: browser or page?
 
 Ask the user "browser or page?" unless it is obvious. One rule: **signed-in or bot-sensitive means page; public and
 unattended means browser.** A browser tool gets a fresh Playwright browser (the loop below). A page tool runs in a tab
 the user already has open, with their real session: read `guide` topic `page-tools` and follow the page loop at the end.
+If the site is bot-sensitive (accounts get locked for automation), also read `hard-targets`: own account only, read only what
+the open tab shows, `hardTarget: true` with `minIntervalSec` >= 60, stop on any `CHALLENGE`, and prefer the site's own export.
 
 ## Loop
 
@@ -61,7 +63,7 @@ the user already has open, with their real session: read `guide` topic `page-too
   Otherwise the call waits the full 30 s default timeout, even inside `.catch`.
 - Wait for outcomes, never for time: use `wm.waitForOutcome`.
 - Any edit to tool.mjs or tool.json after a review makes the review stale. Re-test, re-review, re-submit.
-- No secrets, no logins, no writes in this version. Keep results small (over 16 KiB is truncated).
+- No secrets, no logins. Writes only through the explicit write mint (`mint_effect`, see the writes guide); `explore` must never change state. Keep results small (over 16 KiB is truncated).
 
 ## Page loop (kind "page")
 

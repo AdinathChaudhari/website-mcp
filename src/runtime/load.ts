@@ -10,7 +10,9 @@ export interface ToolManifest {
   name: string;
   description?: string;
   kind?: "browser" | "page";
-  effect: "read";
+  effect: "read" | "write";
+  /** effect "write", kind "browser": the names of the wm.commit(mark, fn) calls the tool makes. */
+  commitMarks?: string[];
   input: object;
   output: object;
   site?: { allowedOrigins?: string[] };
@@ -97,6 +99,33 @@ export function assertPageSource(source: string, label: string): void {
   if (/\bimport\b\s*(\(|[\w{*"'])/.test(source)) throw new Error(`${label}: a page tool must not import anything (it runs inside the page)`);
 }
 
+export const MARK_RE = /^[a-z][a-z0-9_-]{0,40}$/;
+
+/** A write tool always has a `dryRun` boolean input, default true. A tool may not declare its own. */
+export function withDryRun(input: object, label: string): object {
+  const i = input as { properties?: Record<string, unknown> };
+  if (i.properties && "dryRun" in i.properties) throw new Error(`${label}: "dryRun" is added automatically to write tools; remove it from input`);
+  return { ...i, properties: { ...(i.properties ?? {}), dryRun: { type: "boolean", default: true, description: "true (default): rehearse without saving anything. false: really make the change, once." } } };
+}
+
+/** Write-only manifest fields. Shared by save_tool, the publish gate and the loader. */
+export function assertWriteBlock(m: { effect?: unknown; kind?: unknown; commitMarks?: unknown; hardTarget?: unknown; input?: unknown }, label: string): void {
+  const marks = m.commitMarks;
+  if (m.effect !== "write") {
+    if (marks !== undefined) throw new Error(`${label}: commitMarks is for effect "write" only`);
+    return;
+  }
+  if (m.hardTarget === true) throw new Error(`${label}: write tools are not allowed on a hardTarget site`);
+  if (m.input && typeof m.input === "object" && "dryRun" in ((m.input as { properties?: object }).properties ?? {})) throw new Error(`${label}: "dryRun" is added automatically to write tools; remove it from input`);
+  if (m.kind === "page") {
+    if (marks !== undefined) throw new Error(`${label}: a page write tool hands the final click to the user (wm.handOff); it has no commitMarks`);
+    return;
+  }
+  if (!Array.isArray(marks) || marks.length === 0 || !marks.every((x) => typeof x === "string" && MARK_RE.test(x)) || new Set(marks).size !== marks.length) {
+    throw new Error(`${label}: a browser write tool needs commitMarks: a non-empty list of distinct names (lowercase, e.g. "save_profile") for its wm.commit calls`);
+  }
+}
+
 export function listToolNames(): string[] {
   const dir = toolsDir();
   if (!existsSync(dir)) return [];
@@ -111,14 +140,16 @@ export function readManifest(name: string, base: string = toolsDir()): ToolManif
   const file = join(base, name, "tool.json");
   if (!existsSync(file)) throw new ToolNotFound(name);
   const m = JSON.parse(readFileSync(file, "utf8")) as Partial<ToolManifest>;
-  if (m.effect !== "read") throw new Error(`${name}: only effect "read" is supported`);
+  if (m.effect !== "read" && m.effect !== "write") throw new Error(`${name}: effect must be "read" or "write"`);
   if (m.kind !== undefined && m.kind !== "browser" && m.kind !== "page") {
     throw new Error(`${name}: unknown kind "${String(m.kind)}"`);
   }
   assertManifestShape(m, name);
   assertPageBlock(m, name);
+  assertWriteBlock(m, name);
   assertSchema(m.input, `${name} input`);
   assertSchema(m.output, `${name} output`);
+  if (m.effect === "write") m.input = withDryRun(m.input as ToolManifest["input"], name);
   return { ...(m as ToolManifest), name };
 }
 

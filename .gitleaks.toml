@@ -1,0 +1,18 @@
+# Config for gitleaks (CI job and local runs). Extends the default ruleset.
+title = "website-mcp gitleaks config"
+
+[extend]
+useDefault = true
+
+# extension/manifest.json carries the extension's PUBLIC key (it pins the extension ID). Not a secret.
+[[allowlists]]
+description = "public extension key"
+condition = "AND"
+paths = ['''^extension/manifest\.json$''']
+regexTarget = "line"
+regexes = ['''"key"\s*:''']
+
+# The publish-gate tests feed the secret scanner obviously fake credentials on purpose.
+[[allowlists]]
+description = "synthetic fixtures for the publish-gate secret scanner"
+paths = ['''^test/unit/publish-gate\.test\.mjs$''']

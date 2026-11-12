@@ -17,12 +17,16 @@ export type ErrorCode =
   | "PROTOCOL_MISMATCH"
   | "NEEDS_APPROVAL"
   | "SIGNED_OUT"
-  | "EXPLORE_OFF";
+  | "EXPLORE_OFF"
+  | "CHALLENGE"
+  | "TOO_SOON";
 
 export class WebsiteMcpError extends Error {
   readonly code: ErrorCode;
   /** Optional structured detail (e.g. publish refusal reasons), included in the JSON payload. */
   readonly details?: unknown;
+  /** Write tools only: what is known about the change when the run failed. Set by runTool, never by a tool. */
+  outcome?: { committed: boolean; possibleCommit: boolean };
   constructor(code: ErrorCode, message: string, details?: unknown) {
     super(message);
     this.name = new.target.name;
@@ -47,8 +51,11 @@ export class InvalidOutput extends WebsiteMcpError {
   }
 }
 export class ToolFailed extends WebsiteMcpError {
-  constructor(message: string) {
+  /** True when the runner refused before anything was sent to the page (so a write failure is not "possibly committed"). */
+  readonly preflight: boolean;
+  constructor(message: string, preflight = false) {
     super("tool_failed", message);
+    this.preflight = preflight;
   }
 }
 export class Timeout extends WebsiteMcpError {
@@ -70,15 +77,22 @@ export class LiveCapReached extends WebsiteMcpError {
   }
 }
 
+/** minIntervalSec: the tool ran too recently. Refused before anything touches the site. */
+export class TooSoon extends WebsiteMcpError {
+  constructor(message: string, details: { remainingSec: number; minIntervalSec: number }) {
+    super("TOO_SOON", message, details);
+  }
+}
+
 export class BridgeError extends WebsiteMcpError {
   constructor(code: Extract<ErrorCode, Uppercase<ErrorCode>>, message: string, details?: unknown) {
     super(code, message, details);
   }
 }
 
-export function toErrorPayload(e: unknown): { error: { code: string; message: string; reasons?: unknown } } {
+export function toErrorPayload(e: unknown): { error: { code: string; message: string; reasons?: unknown; committed?: boolean; possibleCommit?: boolean } } {
   if (e instanceof WebsiteMcpError) {
-    return { error: { code: e.code, message: e.message, ...(e.details !== undefined ? { reasons: e.details } : {}) } };
+    return { error: { code: e.code, message: e.message, ...(e.details !== undefined ? { reasons: e.details } : {}), ...(e.outcome ?? {}) } };
   }
   return { error: { code: "tool_failed", message: e instanceof Error ? e.message : String(e) } };
 }

@@ -91,3 +91,10 @@ test("scan gap probes: defaultView/navigator lookups, built-up keys, string time
     assert.equal(bad(wrap(b)), "", b);
   }
 });
+
+test("write gate: computed string key is flagged in code only, not after of/return, in comments or in strings", () => {
+  const w = (src) => scanPageSource(src, { write: true }).forbidden.join(" | ");
+  assert.match(w('export default async () => { const e = document.body; e["cl"+"ick"]; return e["x"]; };'), /computed member access/);
+  assert.equal(w('export default async () => { for (const f of ["a", "b"]) { f; } return ["a"]; };'), "");
+  assert.equal(w('export default async () => { // el["x"] in a comment\n /* el["y"] */ const s = \'a["b"]\'; return s; };'), "");
+});

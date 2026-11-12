@@ -11,11 +11,15 @@ const DEFAULT_URL = "https://capture.invalid/";
  * The same code the extension injects (extension/lib.js composeCode): the helpers text as `wm`, the tool's default
  * export called with { input, wm }. Kept textually parallel on purpose, so a capture run exercises what the tab runs.
  */
-export function composeEval(source: string, input: unknown, helpersText: string): string {
+export function composeEval(source: string, input: unknown, helpersText: string, write?: { dryRun: boolean }, signin?: { marker: string }): string {
+  // Write tools: arm the helper with the runtime's dryRun (once; the tool cannot re-arm) and return { value, committed }.
+  const arm = write ? `wm._arm(${write.dryRun});` : "";
+  const ret = write ? "{ok:true,value:{value:v,committed:wm.committed()}}" : "{ok:true,value:v}";
+  const gate = signin ? `if(!document.querySelector(${JSON.stringify(signin.marker)}))return {ok:false,signedOut:true};` : "";
   return (
-    `(async()=>{try{const wm=${helpersText};const fn=(${source});` +
-    `return {ok:true,value:await fn({input:${JSON.stringify(input ?? null)},wm})};}` +
-    `catch(e){return {ok:false,message:String((e&&e.message)||e)};}})()`
+    `(async()=>{const wm=${helpersText};${arm}const ch=()=>{try{const c=wm.challenge();return c?{ok:false,challenge:c${write ? ",committed:wm.committed()" : ""}}:null}catch(e){return null}};` +
+    `try{const c=ch();if(c)return c;${gate}const v=await (${source})({input:${JSON.stringify(input ?? null)},wm});return ch()||${ret};}` +
+    `catch(e){return ch()||{ok:false,message:String((e&&e.message)||e)};}})()`
   );
 }
 
@@ -67,11 +71,16 @@ export class PageEvalRunner implements Runner {
       });
       const page = await context.newPage();
       await page.goto(url, { waitUntil: "domcontentloaded" });
-      if (signin && (await page.locator(signin.marker).count()) === 0) {
-        throw new BridgeError("SIGNED_OUT", `${manifest.name}: the signed-in marker (${signin.marker}) is not in the capture; sign in at ${signin.loginUrl}`);
-      }
-      const r = (await page.evaluate(composeEval(ctx.fn.toString(), ctx.input, readPageHelpers()))) as { ok: boolean; value?: unknown; message?: string };
+      const r = (await page.evaluate(composeEval(ctx.fn.toString(), ctx.input, readPageHelpers(), ctx.write ? { dryRun: ctx.write.dryRun } : undefined, signin))) as { ok: boolean; value?: unknown; message?: string; challenge?: string; signedOut?: boolean };
+      if (r?.challenge && ctx.write && (r as { committed?: unknown }).committed === true) ctx.write.pageCommitted = true;
+      if (r?.challenge) throw new BridgeError("CHALLENGE", `${manifest.name}: the capture shows a challenge or block (${r.challenge})`);
+      if (r?.signedOut && signin) throw new BridgeError("SIGNED_OUT", `${manifest.name}: the signed-in marker (${signin.marker}) is not in the capture; sign in at ${signin.loginUrl}`);
       if (!r?.ok) throw new ToolFailed(`${manifest.name}: ${r?.message ?? "script returned nothing"}`);
+      if (ctx.write) {
+        const w = r.value as { value: unknown; committed: boolean };
+        ctx.write.pageCommitted = w.committed;
+        return w.value;
+      }
       return r.value;
     } catch (e) {
       if (e instanceof WebsiteMcpError) throw e;

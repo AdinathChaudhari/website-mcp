@@ -1,67 +1,118 @@
-# website-mcp
+<!--
+GitHub metadata, authored here and applied by hand in repo Settings (not rendered on the page):
+About:  Mint any website task into a tested, deterministic MCP tool with Claude Code, then replay it with no model — Playwright browser tools plus page tools that run in your own Chrome tab.
+Topics (ranked): mcp, model-context-protocol, claude-code, claude-code-plugin, browser-automation, playwright, web-scraping, chrome-extension, native-messaging, mv3, deterministic, tool-generation, typescript, nodejs, cli
+Social preview: docs/media/hero.png at 1280x640 once the asset exists.
+-->
 
-Turn any website into a tested, deterministic tool your agent can call — minted by Claude Code,
-replayed with no model in the loop.
+# website-mcp — Website to Deterministic MCP Tool
 
-> **Status:** Phase 2 built (draft, test and publish gates on top of the Phase 1 stdio MCP server, model-free runtime and Playwright runner). Plan: [`docs/01-planning/PLAN v2.md`](docs/01-planning/PLAN%20v2.md).
+**Explore a site once. Replay it forever, free.**  
+*Claude Code writes and tests a script for a site task, saves it as an MCP tool, and from then on it runs with no model in the loop.*
 
-## What it will do
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![TypeScript](https://img.shields.io/badge/typescript-node%2022%2B-blue)
+![MCP](https://img.shields.io/badge/MCP-stdio-informational)
 
-You type `/mint <task> on <site>` in Claude Code. Claude explores the site, writes a script, tests
-it, and saves it as a tool. From then on the tool runs instantly and for free — no AI — either:
+<!-- HERO IMAGE PLACEHOLDER: ![hero](docs/media/hero.png) — keep commented out until the asset exists. -->
 
-- **Browser tools** — in a background Playwright browser (public sites, unattended runs), or
-- **Page tools** — inside a tab of your own signed-in browser, via a small extension (signed-in
-  sites; you approve each site and each tool version).
+You type `/website-mcp:mint <task> on <site>`. Claude explores the site, writes a script, proves it against test cases, gets it reviewed, and saves it as a tool. After that the tool is a plain file: it runs instantly, costs nothing, and gives the same answer shape every time.
+
+## The map
+
+| I want to… | Tool kind | What it is |
+|---|---|---|
+| **Read a public site** unattended | Browser tool ([`src/browser/`](src/browser/)) | Runs in a fresh Playwright browser, blocked from any origin outside the tool's allow-list |
+| **Read or fill a signed-in site** | Page tool ([`extension/`](extension/)) | Runs inside a tab of your own Chrome, after you allow the site and approve the tool version |
+| **Change something** on a site | Write tools ([`authoring/writes.md`](authoring/writes.md)) | Rehearsal by default; page tools never press the final Save, you do |
+| **Swap the minter** | Model seam ([`docs/model-seam.md`](docs/model-seam.md)) | The interfaces a local model or API would implement |
+
+## Quick start
+
+Needs Node 22+ and Claude Code. Chrome is the supported browser for page tools.
+
+```bash
+npm install && npm run build
+claude plugin marketplace add .
+claude plugin install website-mcp@website-mcp
+```
+
+1. **Mint a tool** — in Claude Code run `/website-mcp:mint <what to read> on <site url>`; pick "browser" for public sites.
+2. **Run it anywhere** — `node dist/cli.js run <name> --input '{"q":"..."}'` from the checkout (or `npm link` once, then plain `website-mcp run …`), or call it as an MCP tool. Below, `website-mcp` means either form.
+
+The local marketplace above loads the checkout in place. A marketplace added from a GitHub URL has no `dist/`: set `WEBSITE_MCP_ALLOW_NPX=1` (runs the published npm package) or `WEBSITE_MCP_ROOT` (path to a built checkout). Details in [`plugin/README.md`](plugin/README.md).
+
+Browser tools work now. Page tools need one more setup, below. That's it for the basics; everything below is detail.
+
+---
+
+## Demo
+
+Output of the test suite (`test/browser`) running a saved tool against the repo's local fixture site (`test/fixtures/site/`), no model involved. It is not a command you can paste from a fresh checkout: the fixture server and origin are set up by the tests.
+
+```
+$ website-mcp test fixture_search
+case          result  ms     error
+tag_alpha     PASS    174
+tag_beta      PASS    162
+tag_gamma     PASS    163
+no_match      PASS    161
+blank_query   PASS    116
+empty_string  PASS    1
+
+6/6 passed (100%); bar: >=3 cases and >=70% -> OK
+
+$ website-mcp run fixture_search --input '{"q":"alpha"}'
+{
+  "items": [
+    "Fixture item 01",
+    "Fixture item 06",
+    "Fixture item 11",
+    "Fixture item 16",
+    "Fixture item 21"
+  ]
+}
+```
+
+---
+
+## Page tools setup (your own Chrome)
+
+Page tools run in your real, signed-in tab, so they need the extension and a native-messaging bridge.
+
+1. **Load the extension** — open `chrome://extensions`, turn on Developer mode, choose "Load unpacked" and pick the `extension/` folder.
+2. **Allow User Scripts** — on the extension's details page, turn on **Allow User Scripts**. Without it the extension cannot run tool code.
+3. **Install the bridge** — `node dist/cli.js bridge install --browser chrome` (or `website-mcp bridge install …` after `npm link`), then restart Chrome.
+4. **Check** — `website-mcp bridge status` should report the host installed and the extension connected.
+5. **Grant and approve** — in the extension popup, click **Allow this site** for each site, and **Approve** for each tool version. Changing a tool's code asks again.
+
+---
 
 ## Draft, test, publish
 
-Minting goes through a draft folder (`<home>/drafts/<name>/`), never straight into `tools/`:
+Minting goes through a draft folder, never straight into `tools/`:
 
-1. `save_tool` writes the draft `tool.json` + `tool.mjs`.
-2. `save_cases` writes `tests/cases.json` (at least 3 cases; include an empty and an `invalid_input` case).
-3. `test_tool` runs the cases through the normal runtime, no model.
-4. `publish_tool` copies the draft to a private stage, re-checks it, and publishes only if the bar is met.
+1. **`save_tool`** writes the draft `tool.json` and `tool.mjs`.
+2. **`save_cases`** writes at least 3 cases, including an empty and an `invalid_input` one.
+3. **`test_tool`** runs them through the normal runtime, no model.
+4. **`publish_tool`** re-checks a staged copy and publishes only if the bar is met: at least 70% of cases pass, valid schemas, no secret-shaped literals, no URL outside the allow-list, and a declared `effect`.
 
-The same loop from a shell:
+The previous version moves to `.history/<n>/`. Commands: `serve`, `list`, `run`, `test [--draft]`, `review`, `publish`, `bridge install|status|uninstall`.
 
-```
-website-mcp test <name> --draft   # run a draft's cases; exits 1 below the bar
-website-mcp test <name>           # run a published tool's cases
-website-mcp publish <name>        # gate + publish the draft
-```
+---
 
-Publish refuses unless: at least 3 cases, at least 70% pass, valid manifest and schemas, source parses,
-`effect` is `read`, no secret-shaped literals, and no literal URL outside `site.allowedOrigins`.
-The cases are run on the staged copy (a `last-run.json` on disk is never trusted; only a run the same
-MCP session just made on identical files is reused). The previous version moves to `.history/<n>/`.
+## Safety
 
-The off-origin URL scan is a **literal-text heuristic**: a URL assembled from parts (`"https:" + "//host"`)
-is not seen by it. The runtime route guard, which blocks every request outside `site.allowedOrigins`,
-is the real enforcement.
+A page tool is model-written code running in your signed-in tab, so read [`docs/safety.md`](docs/safety.md). In short: the static scan is not a sandbox; what protects you is the per-site grant, the per-version approval bound to the executed code, the explore window, and, for writes, you pressing the final button. The page also covers site terms and what is and is not a boundary.
 
-## Build phases
+> **Heads up:** a tool you mint acts as you. Check a site's terms before pointing a tool at it.
 
-| # | Phase | Hours |
-|---|---|---|
-| 1 | Core loop on a public site | ≤3 |
-| 2 | Test gate + publish gate + fixture site | 4–5 |
-| 3 | Plugin + reviewer + authoring guides | 3–4 |
-| 4 | Page bridge (extension + native host) | 4–5 |
-| 5 | Mint page tools (explore, capture, approve) | 4–6 |
-| 6 | Hard-target signed-in read (gated) | 2–3 |
-| 7 | Writes, both kinds | 6–8 |
-| 8 | Open-source release | 3–4 |
+---
 
-## Repo map
+## Status
 
-| Path | What |
-|---|---|
-| `docs/01-planning/` | Briefs and plans (v1, v2) and the planning run log |
-| `docs/STATUS.md` | Current status and resume guide |
-| `docs/research/` | Prior-art studies: Pomerado, WebMCP / MCP-B, webpage-mcp, browser options |
-| `src/` | Runtime, runners, bridge, mint session, MCP server |
-| `extension/` | MV3 extension for page tools |
-| `plugin/` | Claude Code plugin (skill + reviewer subagent) |
-| `authoring/` | Minter guidance |
-| `test/` | Fixture site, sample tools, tests |
+Phases 1 to 8 are built (see [`CHANGELOG.md`](CHANGELOG.md)). Not yet: a Chrome Web Store listing, a local-model minter, auto-repair. Prior art and what was and was not borrowed: [`docs/prior-art.md`](docs/prior-art.md).
+
+## License
+
+MIT, see [LICENSE](LICENSE).
