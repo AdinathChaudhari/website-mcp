@@ -7,6 +7,7 @@ import { toErrorPayload } from "../runtime/errors.js";
 import { MintSession, RESERVED_NAMES } from "../mint/session.js";
 import { listToolNames, readManifest } from "../runtime/load.js";
 import { readGuide } from "./guides.js";
+import { pageCapture, pageExplore, pageSnapshot, pageTabs } from "../bridge/minting.js";
 import { runTool } from "../runtime/run.js";
 
 const FIXED = RESERVED_NAMES;
@@ -56,14 +57,39 @@ const fixedTools = [
     inputSchema: obj({ code: { type: "string" } }, ["code"]),
   },
   {
+    name: "page_tabs",
+    description:
+      "Page tools: list the open tabs the website-mcp extension can see in the user's own browser: { id, url, title, active, granted, explore }. granted = the user allowed that site in the extension popup; explore = the popup's explore window is open for it (page_snapshot, page_explore and page_capture need it). Needs the extension loaded and the bridge installed.",
+    inputSchema: obj({}),
+  },
+  {
+    name: "page_snapshot",
+    description:
+      "Page tools: DOM outline of an open tab (roles, accessible names, trimmed text), capped at 16 KiB with the full text spilled to a file. Refused unless the explore window is open for the tab's site.",
+    inputSchema: obj({ tabId: { type: "integer" } }, ["tabId"]),
+  },
+  {
+    name: "page_explore",
+    description:
+      "Page tools: run JavaScript in an open tab of the user's own browser (a function body; `return` a JSON-serialisable result; `document` is the page's). Read-only exploration only. REFUSED unless the popup's explore window is open for that site (it turns itself off after 15 minutes). Result capped at 16 KiB.",
+    inputSchema: obj({ tabId: { type: "integer" }, code: { type: "string" } }, ["tabId", "code"]),
+  },
+  {
+    name: "page_capture",
+    description:
+      "Page tools: save the tab's outerHTML as a capture of draft `name` (drafts/<name>/captures/<n>.html, folder mode 700, files 600; never commit one). Returns the capture file name to use in capture test cases. Refused unless the explore window is open.",
+    inputSchema: obj({ tabId: { type: "integer" }, name: { type: "string" } }, ["tabId", "name"]),
+  },
+  {
     name: "save_tool",
     description:
-      "Save a DRAFT tool (it is not callable as a tool until published). `tool` is the tool.json object (description, input, output JSON Schemas, effect \"read\", kind default \"browser\", site.allowedOrigins, optional resultsPath = dot path to the output's main list). `source` is the tool.mjs text with a default export `async ({ page, input, wm }) => result`. Next: save_cases, test_tool, the website-mcp-reviewer subagent, submit_review, publish_tool.",
+      "Save a DRAFT tool (it is not callable as a tool until published). `tool` is the tool.json object (description, input, output JSON Schemas, effect \"read\", kind default \"browser\", site.allowedOrigins, optional resultsPath = dot path to the output's main list). `source` is the tool.mjs text with a default export `async ({ page, input, wm }) => result`. For kind \"page\" the source is `async ({ input, wm }) => result` that runs inside the user's tab (read the guide \"page-tools\" first). Next: save_cases, test_tool, the website-mcp-reviewer subagent, submit_review, publish_tool.",
     inputSchema: obj(
       {
         name: { type: "string", description: "^[a-z][a-z0-9_]{1,62}$" },
         tool: { type: "object" },
         source: { type: "string" },
+        signin: { type: "object", description: 'kind "page" only: { marker, loginUrl } -> signin.json. marker = a CSS selector present only while signed in; loginUrl inside site.allowedOrigins.' },
       },
       ["name", "tool", "source"],
     ),
@@ -71,7 +97,7 @@ const fixedTools = [
   {
     name: "save_cases",
     description:
-      'Save the draft\'s test cases: an array of { name, purpose, input, expect }. expect is "result" (succeeds, main list non-empty), "empty" (succeeds, main list empty) or "invalid_input" (tool rejects the input). Publishing needs at least 3.',
+      'Save the draft\'s test cases: an array of { name, purpose, input, expect }. expect is "result" (succeeds, main list non-empty), "empty" (succeeds, main list empty), "invalid_input" (tool rejects the input) or "signed_out" (page tools: the signin marker is missing). Page tools also take mode "capture" (default; name the file with "capture": "1.html", from page_capture) or "live" (runs in the user\'s real tab, counts against the live cap). Browser tools default to live. Publishing needs at least 3 (page tools: 3 capture cases, plus one live pass).',
     inputSchema: obj({ name: { type: "string" }, cases: { type: "array", items: { type: "object" } } }, ["name", "cases"]),
   },
   {
@@ -82,13 +108,13 @@ const fixedTools = [
   {
     name: "publish_tool",
     description:
-      "Publish a draft as a callable tool. Refuses without an allow review whose sourceHash matches the current draft (see submit_review), and (with reasons naming failing cases) below 70% pass or under 3 cases, on schema errors, literal URLs outside site.allowedOrigins (a text heuristic: the runtime route guard is the real enforcement), or secret-shaped literals. The draft is copied first and the cases always run on that copy unless this session just tested the same files. Keeps the previous version in .history/<n>/.",
+      "Publish a draft as a callable tool. Page tools also need: a clean static scan (one default export, no import/require, no free variables, none of fetch/XMLHttpRequest/WebSocket/sendBeacon/eval/new Function/chrome./document.cookie/storage writes), at least 3 capture cases all passing, one live pass for the exact source, and for world MAIN a reviewer finding that mentions MAIN; the user then approves the published version in the extension popup before its first run. Refuses without an allow review whose sourceHash matches the current draft (see submit_review), and (with reasons naming failing cases) below 70% pass or under 3 cases, on schema errors, literal URLs outside site.allowedOrigins (a text heuristic: the runtime route guard is the real enforcement), or secret-shaped literals. The draft is copied first and the cases always run on that copy unless this session just tested the same files. Keeps the previous version in .history/<n>/.",
     inputSchema: obj({ name: { type: "string" } }, ["name"]),
   },
   {
     name: "guide",
     description:
-      "Minting guidance. topic is one of the authoring guides (core, testing, pagination, search, publication); read core first, and the others when the task involves them. An unknown or missing topic returns the list of topics.",
+      "Minting guidance. topic is one of the authoring guides (core, testing, pagination, search, publication, page-tools); read core first, and the others when the task involves them. An unknown or missing topic returns the list of topics.",
     inputSchema: obj({ topic: { type: "string" } }),
   },
   {
@@ -170,7 +196,15 @@ export async function startServer(): Promise<void> {
         case "explore":
           return text(await exploreCode(await getPage(), String(args.code ?? "")), "explore");
         case "save_tool":
-          return text(session.saveDraft(args.name, args.tool, args.source), "save_tool");
+          return text(session.saveDraft(args.name, args.tool, args.source, args.signin), "save_tool");
+        case "page_tabs":
+          return text(await pageTabs(), "page_tabs");
+        case "page_snapshot":
+          return text(await pageSnapshot(args), "page_snapshot");
+        case "page_explore":
+          return text(await pageExplore(args), "page_explore");
+        case "page_capture":
+          return text(await pageCapture(args), "page_capture");
         case "save_cases":
           return text(session.saveCases(args.name, args.cases), "save_cases");
         case "test_tool": {

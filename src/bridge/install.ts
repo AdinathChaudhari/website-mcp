@@ -7,6 +7,8 @@ import { EXTENSION_ID } from "./extension-id.js";
 import { HOST_NAME } from "./protocol.js";
 
 export const BROWSERS = ["brave", "chrome", "chromium", "edge"] as const;
+/** Chrome, not Brave: Brave cannot find user-level native hosts (D-033). */
+export const DEFAULT_BROWSER: BrowserName = "chrome";
 export type BrowserName = (typeof BROWSERS)[number];
 
 const MAC: Record<BrowserName, string[]> = {
@@ -52,7 +54,7 @@ export function wrapperPathFor(home: string = homeDir()): string {
 }
 
 export function manifestPathFor(opts: InstallOptions = {}): string {
-  return join(opts.nmhDir ?? nativeHostsDir(opts.browser ?? "brave"), `${HOST_NAME}.json`);
+  return join(opts.nmhDir ?? nativeHostsDir(opts.browser ?? DEFAULT_BROWSER), `${HOST_NAME}.json`);
 }
 
 /** A node path that survives `brew upgrade node` (Cellar paths do not): the first stable symlink resolving to the same binary. */

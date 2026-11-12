@@ -10,6 +10,11 @@
 <div class="row"><span id="status">checking...</span></div>
 <label class="row"><span>Allow website-mcp to run tools</span><input type="checkbox" id="enabled"></label>
 <div class="row"><span id="origin"></span><button id="allow">Allow this site</button></div>
+<label class="row"><span>Allow Claude to explore this site for 15 min (<span id="exploreNote">closed</span>)</span><input type="checkbox" id="explore"></label>
+<strong>Waiting for approval</strong>
+<ul id="pending"></ul>
+<strong>Approved tool versions</strong>
+<ul id="approved"></ul>
 <strong>Allowed sites</strong>
 <ul id="sites"></ul>
-<script src="popup.js"></script>
+<script type="module" src="popup.js"></script>

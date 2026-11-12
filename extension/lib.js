@@ -15,11 +15,51 @@ export function pickTab(tabs) {
   return [...tabs].sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0) || (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))[0];
 }
 
-export function composeCode(source, input, helpersText) {
-  return `(async()=>{try{const wm=${helpersText};const fn=(${source});` +
+export function composeCode(source, input, helpersText, signin) {
+  const gate = signin ? `if(!document.querySelector(${JSON.stringify(signin.marker)}))return {ok:false,signedOut:true};` : "";
+  return `(async()=>{try{${gate}const wm=${helpersText};const fn=(${source});` +
     `return {ok:true,value:await fn({input:${JSON.stringify(input ?? null)},wm})};}` +
     `catch(e){return {ok:false,message:String((e&&e.message)||e)};}})()`;
 }
+
+export const EXPLORE_MS = 15 * 60 * 1000;
+export const CAPS = { snapshot: 256 * 1024, explore: 256 * 1024, capture: 8 * 1024 * 1024 };
+export const approvalKey = (m, hash) => `${m.toolName}|${m.version ?? "draft"}|${hash}`;
+const canon = (v) => (Array.isArray(v) ? `[${v.map(canon)}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canon(v[k]))}}` : JSON.stringify(v ?? null));
+/** Approval binds to the code and scope that will run, computed here: never trust a hash the requester sends. Node mirrors this in runners/page.ts. */
+export async function runHash(m) {
+  const text = canon({ source: m.source, world: m.world ?? "USER_SCRIPT", urlPattern: m.urlPattern ?? null, origins: m.origins ?? [], signin: m.signin ?? null, needsVisible: !!m.needsVisible });
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+const originOfUrl = (u) => { try { return new URL(u).origin; } catch { return null; } };
+/** Expiry is checked here, at use time; nothing else turns the window off. */
+export async function exploreOpen(chrome, origin) {
+  const { explore = {} } = await chrome.storage.local.get("explore");
+  return (explore[origin] ?? 0) > Date.now();
+}
+
+// Model-written outline of the page: roles, accessible names, trimmed text.
+const SNAPSHOT_JS = `(()=>{const o=[];const w=(e,d)=>{if(o.length>4000||d>30)return;const t=e.tagName.toLowerCase();if(/^(script|style|noscript|svg|template)$/.test(t))return;` +
+  `const r=e.getAttribute("role")||({a:"link",button:"button",input:"textbox",select:"combobox",textarea:"textbox",h1:"heading",h2:"heading",h3:"heading",ul:"list",li:"listitem",table:"table",form:"form",nav:"navigation",main:"main"})[t];` +
+  `const n=(e.getAttribute("aria-label")||e.getAttribute("alt")||e.getAttribute("placeholder")||"").slice(0,80);` +
+  `const own=[...e.childNodes].filter(c=>c.nodeType===3).map(c=>c.textContent.trim()).join(" ").slice(0,120);` +
+  `if(r||n||own)o.push("  ".repeat(d)+(r||t)+(n?' "'+n+'"':"")+(own?": "+own:""));for(const c of e.children)w(c,d+1)};w(document.body,0);return o.join("\\n")})()`;
+
+const execIn = (chrome, tabId, code, world, timeoutMs, errCode = "SCRIPT_ERROR") => {
+  let timer;
+  const timeout = new Promise((r) => { timer = setTimeout(() => r(err("TIMEOUT", `Page script did not finish within ${timeoutMs} ms`)), timeoutMs); });
+  const exec = chrome.userScripts
+    .execute({ target: { tabId }, js: [{ code }], world, injectImmediately: true })
+    .then((res) => {
+      const r = res?.[0]?.result;
+      if (res?.[0]?.error || !r) return err(errCode, String(res?.[0]?.error ?? "script returned nothing"));
+      if (r.signedOut) return err("SIGNED_OUT", "signed-in marker not found in the tab");
+      return r.ok ? { ok: true, value: r.value } : err(errCode, r.message);
+    })
+    .catch((e) => err(errCode, String(e?.message ?? e)));
+  return Promise.race([exec, timeout]).finally(() => clearTimeout(timer));
+};
 
 export async function isEnabled(chrome) {
   const { enabled } = await chrome.storage.local.get("enabled");
@@ -35,50 +75,77 @@ async function userScriptsOn(chrome) {
   }
 }
 
-/** Handle one `run` request; returns {ok:true,value} or {ok:false,error}. Never creates or navigates tabs. */
-export async function handleRun(chrome, msg, helpersText) {
+async function gate(chrome) {
   if (!(await isEnabled(chrome))) return err("NO_BRIDGE", "website-mcp is switched off in the extension popup");
   if (!chrome.userScripts || !(await userScriptsOn(chrome)))
-    return err("USER_SCRIPTS_OFF", "Enable 'Allow User Scripts' on the extension's details page (brave://extensions), then retry");
+    return err("USER_SCRIPTS_OFF", "Enable 'Allow User Scripts' on the extension's details page (chrome://extensions), then retry");
+}
+
+/** Handle one `run` request; returns {ok:true,value} or {ok:false,error}. Never creates or navigates tabs. */
+export async function handleRun(chrome, msg, helpersText) {
+  const bad = await gate(chrome);
+  if (bad) return bad;
   const granted = [];
   for (const o of msg.origins ?? []) if (await chrome.permissions.contains({ origins: [`${o}/*`] })) granted.push(o);
   if (!granted.length)
     return err("SITE_NOT_GRANTED", `Open ${msg.origins?.[0]} and click 'Allow this site' in the website-mcp extension popup`, { origins: msg.origins });
+  if (msg.draft) {
+    if (!(await exploreOpen(chrome, granted[0]))) return err("EXPLORE_OFF", "Draft runs need the popup's explore window open for this site");
+  } else {
+    const { approved = {}, pending = {} } = await chrome.storage.local.get(["approved", "pending"]);
+    const hash = await runHash(msg);
+    const key = approvalKey(msg, hash);
+    if (!approved[key]) {
+      pending[key] = { toolName: msg.toolName, version: msg.version ?? null, hash, site: msg.origins?.[0] };
+      await chrome.storage.local.set({ pending });
+      return err("NEEDS_APPROVAL", "Approve this tool version in the extension popup", { toolName: msg.toolName, hash });
+    }
+  }
   const tabs = (await chrome.tabs.query({ url: granted.map((o) => `${o}/*`) })).filter((t) => t.url && matchesPath(msg.urlPattern, t.url));
   const tab = pickTab(tabs);
   if (!tab) return err("NO_TAB", `No open tab matches ${granted[0]}${msg.urlPattern ?? "/*"}; open it in your browser (${granted[0]}) and retry`);
   if (msg.needsVisible && !tab.active) return err("TAB_HIDDEN", "This tool needs the tab visible; switch to it and retry");
-  let timer;
-  const timeout = new Promise((r) => {
-    timer = setTimeout(() => r(err("TIMEOUT", `Page script did not finish within ${msg.timeoutMs} ms`)), msg.timeoutMs);
-  });
-  const exec = chrome.userScripts
-    .execute({ target: { tabId: tab.id }, js: [{ code: composeCode(msg.source, msg.input, helpersText) }], world: msg.world ?? "USER_SCRIPT", injectImmediately: true })
-    .then((res) => {
-      const r = res?.[0]?.result;
-      if (res?.[0]?.error || !r) return err("SCRIPT_ERROR", String(res?.[0]?.error ?? "script returned nothing"));
-      return r.ok ? { ok: true, value: r.value } : err("SCRIPT_ERROR", r.message);
-    })
-    .catch((e) => err("SCRIPT_ERROR", String(e?.message ?? e)));
-  try {
-    return await Promise.race([exec, timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
+  const r = await execIn(chrome, tab.id, composeCode(msg.source, msg.input, helpersText, msg.signin), msg.world ?? "USER_SCRIPT", msg.timeoutMs);
+  if (r.error?.code === "SIGNED_OUT" && msg.signin) r.error.message = `signed-in marker not found; sign in at ${msg.signin.loginUrl}`;
+  return r;
+}
+
+/** snapshot / explore / capture: only on a granted tab whose explore window is open. */
+export async function handleExplore(chrome, msg) {
+  const bad = await gate(chrome);
+  if (bad) return bad;
+  const tab = await chrome.tabs.get(msg.tabId).catch(() => null);
+  const origin = tab?.url && originOfUrl(tab.url);
+  if (!origin || !/^https?:/.test(origin)) return err("NO_TAB", `No http(s) tab with id ${msg.tabId}`);
+  if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) return err("SITE_NOT_GRANTED", `Click 'Allow this site' in the website-mcp popup on ${origin}`);
+  if (!(await exploreOpen(chrome, origin))) return err("EXPLORE_OFF", `The explore window for ${origin} is closed; open it in the popup (it lasts 15 minutes)`);
+  const body = msg.type === "snapshot" ? SNAPSHOT_JS : msg.type === "capture" ? `({url:location.href,title:document.title,html:document.documentElement.outerHTML})` : `(async()=>{${msg.code}\n})()`;
+  const code = `(async()=>{try{const v=await ${body};return {ok:true,value:JSON.stringify(v===undefined?null:v)};}catch(e){return {ok:false,message:String((e&&e.message)||e)};}})()`;
+  const r = await execIn(chrome, tab.id, code, "USER_SCRIPT", msg.type === "explore" ? msg.timeoutMs : 15000);
+  if (!r.ok) return r;
+  if (r.value.length > CAPS[msg.type]) return err("SCRIPT_ERROR", `${msg.type} result is ${r.value.length} chars, over the ${CAPS[msg.type]} cap; narrow it`);
+  return { ok: true, value: JSON.parse(r.value) };
 }
 
 export async function handleTabs(chrome, msg) {
   if (!(await isEnabled(chrome))) return err("NO_BRIDGE", "website-mcp is switched off in the extension popup");
-  const origins = [];
-  for (const o of msg.origins ?? []) if (await chrome.permissions.contains({ origins: [`${o}/*`] })) origins.push(`${o}/*`);
-  const tabs = origins.length ? await chrome.tabs.query({ url: origins }) : [];
-  return { ok: true, value: tabs.map((t) => ({ id: t.id, url: t.url, active: t.active })) };
+  const out = [];
+  const all = msg.origins ? await chrome.tabs.query({ url: msg.origins.map((o) => `${o}/*`) }) : await chrome.tabs.query({});
+  for (const t of all) {
+    const origin = t.url && originOfUrl(t.url);
+    if (!origin || !/^https?:/.test(origin)) continue;
+    const granted = await chrome.permissions.contains({ origins: [`${origin}/*`] });
+    if (msg.origins && !granted) continue;
+    out.push({ id: t.id, url: t.url, title: t.title ?? "", active: !!t.active, granted, explore: granted && (await exploreOpen(chrome, origin)) });
+  }
+  return { ok: true, value: out };
 }
 
 /** Dispatch a host message; returns the wire reply or undefined when none is due. */
 export async function handleMessage(chrome, msg, helpersText, extVersion) {
-  if (msg.type === "hello") return { type: "hello", version: 1, extVersion };
-  if (msg.type !== "run" && msg.type !== "tabs") return undefined;
-  const r = msg.type === "run" ? await handleRun(chrome, msg, helpersText) : await handleTabs(chrome, msg);
+  if (msg.type === "hello") return { type: "hello", version: 2, extVersion };
+  const h = { run: handleRun, tabs: handleTabs, snapshot: handleExplore, explore: handleExplore, capture: handleExplore }[msg.type];
+  if (!h) return undefined;
+  const r = await h(chrome, msg, helpersText);
   return { type: "result", id: msg.id, ...r };
 }

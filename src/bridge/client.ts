@@ -5,7 +5,7 @@ import { socketPath } from "./host.js";
 import type { Request, Result } from "./protocol.js";
 
 export const NO_BRIDGE_HINT =
-  "Run `website-mcp bridge status`. If it says not connected: open the browser with the website-mcp extension loaded (and run `website-mcp bridge install --browser brave` once).";
+  "Run `website-mcp bridge status`. If it says not connected: open the browser with the website-mcp extension loaded (and run `website-mcp bridge install --browser chrome` once).";
 
 type Distribute<T> = T extends unknown ? Omit<T, "id"> : never;
 

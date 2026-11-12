@@ -3,13 +3,16 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PublishRefused } from "../runtime/errors.js";
-import { NAME_RE, assertManifestShape, homeDir, toolsDir } from "../runtime/load.js";
+import { NAME_RE, assertManifestShape, assertPageBlock, homeDir, toolsDir } from "../runtime/load.js";
 import { assertSchema } from "../runtime/schema.js";
-import { reviewProblem } from "./review.js";
-import { MIN_CASES, MIN_PASS_RATE, hashCases, hashSource, readCases, runCases, type LastRun } from "./tests.js";
+import { scanPageSource } from "./page-gate.js";
+import { readReview, reviewProblem } from "./review.js";
+import { signinProblems } from "./signin.js";
+import { LIVE_CAP, LIVE_CAP_HARD } from "./live.js";
+import { MIN_CASES, MIN_PASS_RATE, caseMode, caseProblems, hashCases, hashSource, readCases, runCases, type LastRun } from "./tests.js";
 
 export interface Reason {
-  code: "no_draft" | "too_few_cases" | "bad_cases" | "pass_rate" | "bad_manifest" | "bad_schema" | "bad_source" | "origin" | "secret" | "review";
+  code: "no_draft" | "too_few_cases" | "bad_cases" | "pass_rate" | "bad_manifest" | "bad_schema" | "bad_source" | "origin" | "secret" | "review" | "page_source" | "signin" | "review_main" | "live_proof";
   message: string;
   /** Failing case names, for pass_rate refusals. */
   cases?: string[];
@@ -95,7 +98,18 @@ export function staticChecks(dir: string): Reason[] {
     return [{ code: "bad_manifest", message: `tool.json is not valid JSON: ${(e as Error).message}` }];
   }
   if (m.effect !== "read") reasons.push({ code: "bad_manifest", message: 'effect must be "read" in this version' });
-  if ((m.kind ?? "browser") !== "browser") reasons.push({ code: "bad_manifest", message: 'kind must be "browser" in this version' });
+  const kind = m.kind ?? "browser";
+  if (kind !== "browser" && kind !== "page") reasons.push({ code: "bad_manifest", message: 'kind must be "browser" or "page"' });
+  if (kind === "page") {
+    try {
+      assertPageBlock(m as { kind?: unknown; page?: unknown; minIntervalSec?: unknown }, "tool");
+    } catch (e) {
+      reasons.push({ code: "bad_manifest", message: (e as Error).message });
+    }
+    if (m.hardTarget !== undefined && typeof m.hardTarget !== "boolean") reasons.push({ code: "bad_manifest", message: "hardTarget must be true or false" });
+  } else if (m.page !== undefined || m.hardTarget !== undefined) {
+    reasons.push({ code: "bad_manifest", message: '"page" and "hardTarget" are for kind "page" only' });
+  }
   try {
     assertManifestShape(m as { input?: unknown; output?: unknown; site?: { allowedOrigins?: unknown } }, "tool");
   } catch (e) {
@@ -114,7 +128,17 @@ export function staticChecks(dir: string): Reason[] {
     const se = syntaxError(source);
     if (se) reasons.push({ code: "bad_source", message: `tool.mjs has a syntax error: ${se}` });
   }
+  if (kind === "page" && /export\s+default/.test(source)) {
+    for (const p of scanPageSource(source).problems) reasons.push({ code: "page_source", message: p });
+  }
   const origins = ((m.site as { allowedOrigins?: unknown } | undefined)?.allowedOrigins ?? []) as string[];
+  if (kind === "page" && existsSync(join(dir, "signin.json"))) {
+    try {
+      for (const p of signinProblems(JSON.parse(readFileSync(join(dir, "signin.json"), "utf8")), Array.isArray(origins) ? origins : [])) reasons.push({ code: "signin", message: p });
+    } catch {
+      reasons.push({ code: "signin", message: "signin.json is not valid JSON" });
+    }
+  }
   if (!Array.isArray(origins) || origins.length === 0) {
     reasons.push({ code: "origin", message: "site.allowedOrigins is missing or empty" });
   } else {
@@ -139,6 +163,12 @@ export interface PublishOptions {
    * staged copy. A tests/last-run.json found on disk is never trusted: any file writer could forge one.
    */
   trustedRun?: LastRun;
+  /**
+   * Page tools: a live pass this session recorded in memory for `sourceHash` (a run_tool draft run in the user's tab, or
+   * a passing live case). Never read from disk. Without one (or a trustedRun with a passing live case) a page tool
+   * is refused: the proof rule needs at least one real run.
+   */
+  liveProof?: { sourceHash: string };
 }
 
 /**
@@ -163,7 +193,7 @@ export async function publishDraft(name: string, draftDir: string, opts: Publish
 async function publishFromStage(name: string, draftDir: string, stageRoot: string, opts: PublishOptions): Promise<PublishResult> {
   const snap = join(stageRoot, name);
   mkdirSync(join(snap, "tests"), { recursive: true });
-  for (const f of ["tool.json", "tool.mjs", "review.json", join("tests", "cases.json")]) {
+  for (const f of ["tool.json", "tool.mjs", "review.json", "signin.json", join("tests", "cases.json")]) {
     // isFile, not existsSync: a directory named review.json must not crash copyFileSync (it counts as "no review").
     try {
       if (statSync(join(draftDir, f)).isFile()) copyFileSync(join(draftDir, f), join(snap, f));
@@ -172,6 +202,7 @@ async function publishFromStage(name: string, draftDir: string, stageRoot: strin
     }
   }
   const reasons = staticChecks(snap);
+  const kind = manifestOf(snap).kind ?? "browser";
   let cases: ReturnType<typeof readCases> = [];
   if (!reasons.some((r) => r.code === "no_draft")) {
     try {
@@ -179,23 +210,49 @@ async function publishFromStage(name: string, draftDir: string, stageRoot: strin
     } catch (e) {
       reasons.push({ code: "bad_cases", message: (e as Error).message });
     }
-    if (cases.length < MIN_CASES) {
-      reasons.push({ code: "too_few_cases", message: `need at least ${MIN_CASES} test cases, found ${cases.length}; save_cases first` });
+    for (const p of caseProblems(cases, kind)) reasons.push({ code: "bad_cases", message: p });
+    // A page tool's offline proof is its capture cases; live cases do not count towards the minimum.
+    const counted = kind === "page" ? cases.filter((c) => caseMode(c, kind) === "capture").length : cases.length;
+    if (counted < MIN_CASES) {
+      reasons.push({ code: "too_few_cases", message: `need at least ${MIN_CASES} ${kind === "page" ? "capture " : ""}test cases, found ${counted}; save_cases first` });
     }
   }
   if (!reasons.some((r) => r.code === "no_draft")) {
     // Checked on the staged copy, so an edit after this point cannot slip past the reviewed hash.
     const rp = reviewProblem(snap, name);
     if (rp) reasons.push({ code: "review", message: rp });
+    else if (kind === "page") {
+      const world = manifestOf(snap).page?.world;
+      if (world === "MAIN" && !readReview(snap)?.findings.some((f) => f.severity !== "block" && /\bMAIN\b/.test(f.message))) {
+        reasons.push({ code: "review_main", message: 'world "MAIN" runs with the page\'s own privileges: the reviewer must record a finding that mentions MAIN and says why USER_SCRIPT is not enough' });
+      }
+    }
   }
   if (reasons.length) throw refusal(name, reasons);
 
   let run = opts.trustedRun;
   if (!run || run.sourceHash !== hashSource(snap) || run.casesHash !== hashCases(snap)) {
     const m = JSON.parse(readFileSync(join(snap, "tool.json"), "utf8")) as { resultsPath?: string };
-    run = await runCases(name, snap, { draft: true, version: null, resultsPath: m.resultsPath, baseDir: stageRoot });
+    run = await runCases(name, snap, { draft: true, version: null, resultsPath: m.resultsPath, baseDir: stageRoot, skipLive: true });
   }
-  if (run.passRate < MIN_PASS_RATE) {
+  if (kind === "page") {
+    // Proof rule: >= 3 capture cases, all passing, AND >= 1 live pass recorded for this exact source.
+    const cap = run.results.filter((r) => r.mode === "capture");
+    const failing = cap.filter((r) => !r.pass);
+    if (cap.length < MIN_CASES) reasons.push({ code: "too_few_cases", message: `need at least ${MIN_CASES} capture cases run, found ${cap.length}` });
+    if (failing.length) {
+      reasons.push({ code: "pass_rate", message: `every capture case must pass; failing: ${failing.map((r) => `${r.name} (${r.error ?? "failed"})`).join("; ")}`, cases: failing.map((r) => r.name) });
+    }
+    const srcHash = hashSource(snap);
+    const liveOk = opts.liveProof?.sourceHash === srcHash || (run.sourceHash === srcHash && run.results.some((r) => r.mode === "live" && r.pass));
+    if (!liveOk) {
+      reasons.push({
+        code: "live_proof",
+        message: `no live pass recorded for this exact source. Run it once in your real tab (run_tool with draft:true, explore window open for the site) or add a live case and test_tool. Live runs are capped at ${LIVE_CAP} per mint (${LIVE_CAP_HARD} when tool.json sets hardTarget); editing tool.mjs or tool.json after the live pass needs another one`,
+      });
+    }
+    if (reasons.length) throw refusal(name, reasons);
+  } else if (run.passRate < MIN_PASS_RATE) {
     const failing = run.results.filter((r) => !r.pass);
     reasons.push({
       code: "pass_rate",
@@ -227,6 +284,7 @@ async function publishFromStage(name: string, draftDir: string, stageRoot: strin
     writeFileSync(join(stage, "tool.mjs"), readFileSync(join(snap, "tool.mjs")));
     writeFileSync(join(stage, "tests", "cases.json"), readFileSync(join(snap, "tests", "cases.json")));
     writeFileSync(join(stage, "review.json"), readFileSync(join(snap, "review.json")));
+    if (existsSync(join(snap, "signin.json"))) writeFileSync(join(stage, "signin.json"), readFileSync(join(snap, "signin.json")));
     writeFileSync(join(stage, "tests", "last-run.json"), JSON.stringify(lastRun, null, 2) + "\n");
     const desc = typeof draftManifest.description === "string" ? draftManifest.description : "";
     writeFileSync(join(stage, "README.md"), `# ${name}\n\n${desc}\n\nRun: \`website-mcp run ${name} --input '{}'\`\nTest: \`website-mcp test ${name}\`\n`);
@@ -246,6 +304,14 @@ async function publishFromStage(name: string, draftDir: string, stageRoot: strin
     throw e;
   }
   return { published: name, version, ...(previous !== undefined ? { previous } : {}), lastRun };
+}
+
+function manifestOf(dir: string): { kind?: string; page?: { world?: string } } {
+  try {
+    return JSON.parse(readFileSync(join(dir, "tool.json"), "utf8")) as { kind?: string; page?: { world?: string } };
+  } catch {
+    return {};
+  }
 }
 
 function refusal(name: string, reasons: Reason[]): PublishRefused {

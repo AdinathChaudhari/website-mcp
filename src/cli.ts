@@ -127,7 +127,7 @@ async function main(argv: string[]): Promise<number> {
     case "bridge": {
       const [sub, ...brest] = rest;
       const bi = brest.indexOf("--browser");
-      const browser = bi >= 0 ? brest[bi + 1] : "brave";
+      const browser = bi >= 0 ? brest[bi + 1] : "chrome";
       const { BROWSERS, installBridge, uninstallBridge, manifestPathFor } = await import("./bridge/install.js");
       if (!(BROWSERS as readonly string[]).includes(browser ?? "")) {
         console.error(USAGE);

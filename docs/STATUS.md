@@ -1,13 +1,13 @@
 # website-mcp — status and resume guide
 
-**As of 2026-11-12: Phases 1–4 of 8 done (Phase 4 pending manual Brave check). Phase 5 next.**
+**As of 2026-11-12: Phases 1–4 of 8 done; page tools verified in real Chrome. Phase 5 next.**
 Plan: `docs/01-planning/PLAN v2.md` (private, git-ignored). Phases 1–2 committed (4df108d); Phase 3 uncommitted.
 
 ## Resume in 3 steps
 
 1. `cd` into the repo and run `npm test` → expect `tests 97 / pass 97`.
 2. Run `node dist/cli.js test quotes_by_tag` → expect `4/4 passed`.
-3. Finish Phase 4's manual Brave steps (`docs/runs/05-phase-4/USER-CHECKLIST.md`), then Phase 5 with the same workflow shape as Phases 1–2
+3. Start Phase 5 (fix popup false-'connected' + uninstall report bugs first) with the same workflow shape as Phases 1–2
    (Haiku extract → Sonnet build/prove/fix → one Opus verifier → Haiku recorder).
 
 ## What works today
@@ -22,7 +22,7 @@ Plan: `docs/01-planning/PLAN v2.md` (private, git-ignored). Phases 1–2 committ
 | Skill | `.claude/skills/mint/SKILL.md` | Project-level `/mint` loop |
 | Tests | `test/unit`, `test/browser`, `test/fixtures/{site,tools}` | 73 tests, loopback only; scripted no-model mint |
 | Plugin | `.claude-plugin/marketplace.json`, `plugin/` (launch.mjs, skill, reviewer agent) | Local marketplace, loads in place; `/website-mcp:mint` |
-| Page bridge | `extension/` (211 lines), `src/bridge/`, `runners/page.ts` | `bridge install/status/uninstall --browser brave`; host copied to `~/.website-mcp/bridge/` |
+| Page bridge | `extension/` (211 lines), `src/bridge/`, `runners/page.ts` | `bridge install/status/uninstall --browser chrome` (Brave can't find user-level hosts — D-033); host copied to `~/.website-mcp/bridge/` |
 | Review gate | `src/mint/review.ts` | Publish needs an allow bound to name + source hash + cases hash |
 | Guides + waits | `authoring/*.md`, `src/server/guides.ts`, `src/browser/waits.ts` | `guide(topic)`; `wm.waitForOutcome`, `wm.paginate` |
 | CI | `.github/workflows/ci.yml` | Node 22, actions pinned to SHAs |

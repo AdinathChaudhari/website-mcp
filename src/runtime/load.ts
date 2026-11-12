@@ -19,6 +19,8 @@ export interface ToolManifest {
   minIntervalSec?: number;
   /** kind "page" only: how the tool is delivered to the user's open tab. */
   page?: PageBlock;
+  /** kind "page" only: a bot-sensitive site. A mint gets 2 live runs instead of 4. */
+  hardTarget?: boolean;
   version?: number;
   /** Dot path to the output's main list (used by "empty" test cases). Default: first array property. */
   resultsPath?: string;

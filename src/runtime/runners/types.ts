@@ -14,6 +14,10 @@ export interface RunContext {
   dir: string;
   input: unknown;
   signal: AbortSignal;
+  /** True when running a draft (or a staged copy of one), not a published version. */
+  draft?: boolean;
+  /** Absolute path of the capture .html for the page-eval runner. */
+  capture?: string;
 }
 
 /** A Runner executes a tool function somewhere (a fresh browser, a user page, ...). */

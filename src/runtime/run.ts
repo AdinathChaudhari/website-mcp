@@ -2,12 +2,14 @@ import { InvalidInput, InvalidOutput, Timeout, ToolFailed, WebsiteMcpError } fro
 import { draftsDir, loadTool, toolsDir } from "./load.js";
 import { PlaywrightRunner } from "./runners/playwright.js";
 import { PageRunner } from "./runners/page.js";
+import { PageEvalRunner } from "./runners/page-eval.js";
 import type { Runner } from "./runners/types.js";
 import { validate } from "./schema.js";
 
 const runners: Record<string, Runner> = {
   browser: new PlaywrightRunner(),
   page: new PageRunner(),
+  "page-eval": new PageEvalRunner(),
 };
 
 export interface RunOptions {
@@ -15,6 +17,8 @@ export interface RunOptions {
   draft?: boolean;
   /** Load <baseDir>/<name>/ instead (publish gate: a private staged copy of a draft). Wins over `draft`. */
   baseDir?: string;
+  /** Page tools only: absolute path of a saved capture (.html). Runs the tool offline against it (page-eval) instead of in the user's tab. */
+  capture?: string;
 }
 
 export async function runTool(name: string, input: unknown, opts: RunOptions = {}): Promise<unknown> {
@@ -24,7 +28,8 @@ export async function runTool(name: string, input: unknown, opts: RunOptions = {
   const vin = validate(manifest.input, input);
   if (!vin.ok) throw new InvalidInput(`${name}: ${vin.errors}`);
 
-  const runner = runners[manifest.kind ?? "browser"];
+  if (opts.capture && manifest.kind !== "page") throw new InvalidInput(`${name}: only page tools run against a capture`);
+  const runner = runners[opts.capture ? "page-eval" : (manifest.kind ?? "browser")];
   if (!runner) throw new ToolFailed(`${name}: no runner for kind "${manifest.kind}" in this build`);
 
   const seconds = manifest.timeoutSec ?? 60;
@@ -39,7 +44,7 @@ export async function runTool(name: string, input: unknown, opts: RunOptions = {
 
   let result: unknown;
   try {
-    result = await Promise.race([runner.run({ manifest, fn: tool.fn, dir: tool.dir, input, signal: ac.signal }), timeout]);
+    result = await Promise.race([runner.run({ manifest, fn: tool.fn, dir: tool.dir, input, signal: ac.signal, draft: !!(opts.draft || opts.baseDir), capture: opts.capture }), timeout]);
   } catch (e) {
     if (e instanceof WebsiteMcpError) throw e;
     throw new ToolFailed(e instanceof Error ? e.message : String(e));

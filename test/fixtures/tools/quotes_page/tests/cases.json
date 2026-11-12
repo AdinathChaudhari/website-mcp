@@ -1,0 +1,44 @@
+[
+  {
+    "name": "three_quotes",
+    "purpose": "a page with three quotes returns them",
+    "input": {},
+    "expect": "result",
+    "mode": "capture",
+    "capture": "1.html"
+  },
+  {
+    "name": "again_same_page",
+    "purpose": "the run is deterministic on the same capture",
+    "input": {},
+    "expect": "result",
+    "mode": "capture",
+    "capture": "1.html"
+  },
+  {
+    "name": "no_quotes",
+    "purpose": "a page with no quotes returns an empty list",
+    "input": {},
+    "expect": "empty",
+    "mode": "capture",
+    "capture": "2.html"
+  },
+  {
+    "name": "bad_input",
+    "purpose": "unknown input fields are rejected",
+    "input": {
+      "nope": 1
+    },
+    "expect": "invalid_input",
+    "mode": "capture",
+    "capture": "1.html"
+  },
+  {
+    "name": "signed_out",
+    "purpose": "a signed-out capture has no signin marker (needs signin.json)",
+    "input": {},
+    "expect": "signed_out",
+    "mode": "capture",
+    "capture": "3.html"
+  }
+]

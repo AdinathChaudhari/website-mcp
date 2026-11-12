@@ -12,7 +12,14 @@ tools are read-only and run later with no model in the loop.
 Task: $ARGUMENTS
 
 The tools below are the `website-mcp` MCP server's: `guide`, `open`, `snapshot`, `explore`, `save_tool`,
-`save_cases`, `test_tool`, `run_tool`, `submit_review`, `publish_tool`, `list_tools`.
+`save_cases`, `test_tool`, `run_tool`, `submit_review`, `publish_tool`, `list_tools`, and for page tools
+`page_tabs`, `page_snapshot`, `page_explore`, `page_capture`.
+
+## First: browser or page?
+
+Ask the user "browser or page?" unless it is obvious. One rule: **signed-in or bot-sensitive means page; public and
+unattended means browser.** A browser tool gets a fresh Playwright browser (the loop below). A page tool runs in a tab
+the user already has open, with their real session: read `guide` topic `page-tools` and follow the page loop at the end.
 
 ## Loop
 
@@ -55,3 +62,19 @@ The tools below are the `website-mcp` MCP server's: `guide`, `open`, `snapshot`,
 - Wait for outcomes, never for time: use `wm.waitForOutcome`.
 - Any edit to tool.mjs or tool.json after a review makes the review stale. Re-test, re-review, re-submit.
 - No secrets, no logins, no writes in this version. Keep results small (over 16 KiB is truncated).
+
+## Page loop (kind "page")
+
+1. `guide` topic `page-tools`, then `core` and `testing`.
+2. `page_tabs`. If the site's tab is missing, not granted, or the explore window is off, ask the user to open the page,
+   click "Allow this site" and switch on "Explore this site" in the extension popup (it turns off after 15 minutes).
+3. `page_snapshot` and small `page_explore` probes (read-only) until the selectors and data shape are solid.
+4. `page_capture` the states you will test (normal, empty, signed-out if there is a marker). Never put a capture in a repo.
+5. Write tool.mjs (one default export `async ({ input, wm })`, no imports or closures, no network) and tool.json
+   (`kind: "page"`, `page`, `site.allowedOrigins`). Add `signin` to `save_tool` when the page can be signed out.
+6. `save_cases`: at least 3 capture cases (`capture: "<n>.html"`), including empty and invalid_input.
+7. `test_tool`, then ONE live run: `run_tool` with `draft: true` (explore window open). Live runs are capped at 4 per
+   mint (2 for a hard target); do not use them to debug, use captures.
+8. Review (`website-mcp-reviewer`), `submit_review`, `publish_tool`. World MAIN needs a reviewer finding that says why.
+9. Tell the user to open the extension popup and approve the published version (name, version, site, hash). The first run
+   returns `NEEDS_APPROVAL` until they do; editing the tool later asks again.

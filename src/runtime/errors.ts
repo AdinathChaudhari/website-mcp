@@ -5,6 +5,7 @@ export type ErrorCode =
   | "tool_failed"
   | "timeout"
   | "publish_refused"
+  | "live_cap"
   // page-bridge codes (kept upper-case: they are the wire codes from src/bridge/protocol.ts)
   | "NO_BRIDGE"
   | "NO_TAB"
@@ -13,7 +14,10 @@ export type ErrorCode =
   | "TAB_HIDDEN"
   | "TIMEOUT"
   | "SCRIPT_ERROR"
-  | "PROTOCOL_MISMATCH";
+  | "PROTOCOL_MISMATCH"
+  | "NEEDS_APPROVAL"
+  | "SIGNED_OUT"
+  | "EXPLORE_OFF";
 
 export class WebsiteMcpError extends Error {
   readonly code: ErrorCode;
@@ -56,6 +60,13 @@ export class Timeout extends WebsiteMcpError {
 export class PublishRefused extends WebsiteMcpError {
   constructor(message: string, reasons: unknown) {
     super("publish_refused", message, reasons);
+  }
+}
+
+/** A minting session used up its live runs against the real site (4 per mint, 2 for a hard target). */
+export class LiveCapReached extends WebsiteMcpError {
+  constructor(message: string) {
+    super("live_cap", message);
   }
 }
 

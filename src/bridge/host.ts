@@ -3,7 +3,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Readable, Writable } from "node:stream";
-import { FrameDecoder, PROTOCOL_VERSION, encodeFrame, errResult, okResult, type Result } from "./protocol.js";
+import { FrameDecoder, PROTOCOL_V2_ONLY, PROTOCOL_VERSION, encodeFrame, errResult, okResult, type Result } from "./protocol.js";
 
 // Deliberately not imported from ../runtime/load.js: the installed host copy must not pull in ajv/schema (no node_modules).
 const homeDir = (): string => process.env.WEBSITE_MCP_HOME || join(homedir(), ".website-mcp");
@@ -109,8 +109,11 @@ export async function startHost(opts: HostOptions = {}): Promise<Host> {
     if (m.type === "status") {
       return reply(c, okResult(id, { connected: true, protocolVersion: PROTOCOL_VERSION, extension: ext ?? null, hostPid: process.pid }));
     }
-    if (ext && ext.version !== PROTOCOL_VERSION) {
-      return reply(c, errResult(id, "PROTOCOL_MISMATCH", `extension speaks protocol ${ext.version}, host speaks ${PROTOCOL_VERSION}; reload the extension or reinstall the bridge`));
+    if (ext && ext.version > PROTOCOL_VERSION) {
+      return reply(c, errResult(id, "PROTOCOL_MISMATCH", `the extension speaks protocol ${ext.version}, newer than this website-mcp (${PROTOCOL_VERSION}); update website-mcp (git pull, npm run build)`));
+    }
+    if (ext && ext.version < PROTOCOL_VERSION && (PROTOCOL_V2_ONLY.includes(String(m.type)) || ext.version < 1)) {
+      return reply(c, errResult(id, "PROTOCOL_MISMATCH", `the extension is out of date (protocol ${ext.version}, this website-mcp needs ${PROTOCOL_VERSION} for "${m.type}"); reload it at chrome://extensions, or load the current extension/ folder`));
     }
     const hostId = `h${++seq}`;
     pending.set(hostId, { client: c, clientId: id }); // before the write: an answer may arrive synchronously

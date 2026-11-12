@@ -2,18 +2,23 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-import { handleMessage, matchesPath, pickTab, composeCode } from "../../extension/lib.js";
+import { handleMessage, matchesPath, pickTab, composeCode, CAPS, runHash } from "../../extension/lib.js";
 
 const helpers = readFileSync(new URL("../../extension/page-helpers.js", import.meta.url), "utf8");
 const O = "https://quotes.toscrape.com";
 
-function mockChrome({ enabled, us = true, granted = [O], tabs = [], exec } = {}) {
+const BASE = { toolName: "t", version: 1, source: "async ({input}) => input", urlPattern: "/*", origins: [O], world: "USER_SCRIPT" };
+const HASH = await runHash(BASE);
+const KEY = `t|1|${HASH}`;
+function mockChrome({ enabled, us = true, granted = [O], tabs = [], exec, store = {}, approve = true, strict = false } = {}) {
   const calls = [];
+  const data = { ...(enabled === undefined ? {} : { enabled }), approved: !approve ? {} : strict ? { [KEY]: {} } : new Proxy({}, { get: () => ({}) }), ...store };
   return {
     calls,
-    storage: { local: { get: async () => (enabled === undefined ? {} : { enabled }) } },
+    data,
+    storage: { local: { get: async (k) => (Array.isArray(k) ? Object.fromEntries(k.filter((x) => x in data).map((x) => [x, data[x]])) : k in data ? { [k]: data[k] } : {}), set: async (o) => Object.assign(data, o) } },
     permissions: { contains: async ({ origins }) => granted.some((g) => origins[0] === `${g}/*`) },
-    tabs: { query: async () => tabs },
+    tabs: { query: async () => tabs, get: async (id) => { const t = tabs.find((x) => x.id === id); if (!t) throw new Error("no tab"); return t; } },
     userScripts: us
       ? {
           getScripts: async () => [],
@@ -23,11 +28,11 @@ function mockChrome({ enabled, us = true, granted = [O], tabs = [], exec } = {})
   };
 }
 const run = (c, extra = {}) =>
-  handleMessage(c, { type: "run", id: "7", source: "async ({input}) => input", input: { a: 1 }, urlPattern: "/*", origins: [O], world: "USER_SCRIPT", timeoutMs: 500, ...extra }, helpers, "0.1.0");
+  handleMessage(c, { type: "run", id: "7", toolName: "t", version: 1, hash: "h1", source: "async ({input}) => input", input: { a: 1 }, urlPattern: "/*", origins: [O], world: "USER_SCRIPT", timeoutMs: 500, ...extra }, helpers, "0.1.0");
 const tab = (id, p, o = {}) => ({ id, url: `${O}${p}`, ...o });
 
 test("hello reply", async () => {
-  assert.deepEqual(await handleMessage(mockChrome(), { type: "hello" }, helpers, "0.1.0"), { type: "hello", version: 1, extVersion: "0.1.0" });
+  assert.deepEqual(await handleMessage(mockChrome(), { type: "hello" }, helpers, "0.1.0"), { type: "hello", version: 2, extVersion: "0.1.0" });
 });
 test("routing: active tab wins", async () => {
   const c = mockChrome({ tabs: [tab(1, "/a", { lastAccessed: 9 }), tab(2, "/b", { active: true, lastAccessed: 1 })] });
@@ -94,4 +99,104 @@ test("tabs request obeys the master switch and granted origins", async () => {
   assert.equal(off.error.code, "NO_BRIDGE");
   const none = await handleMessage(mockChrome({ granted: [], tabs: [tab(1, "/")] }), { type: "tabs", id: "x", origins: [O] }, "", "1");
   assert.deepEqual(none.value, []);
+});
+
+test("approval binds to the code that runs: a requester-supplied hash is ignored", async () => {
+  const exploits = [{ source: "async()=>document.cookie" }, { world: "MAIN" }, { urlPattern: "/admin*" }, { needsVisible: true }, { signin: { marker: "#x", loginUrl: "https://a.test" } }];
+  for (const e of exploits) {
+    const c = mockChrome({ tabs: [tab(1, "/admin")], strict: true }); // only the benign tool's KEY is approved
+    const r = await run(c, { hash: HASH, ...e });
+    assert.equal(r.error?.code, "NEEDS_APPROVAL", JSON.stringify(e));
+    assert.equal(c.calls.length, 0, "nothing executed");
+  }
+  const c = mockChrome({ tabs: [tab(1, "/")], strict: true });
+  assert.equal((await run(c, { hash: "anything" })).ok, true, "same code, any claimed hash: runs");
+});
+// ---- Phase 5: approval, explore window, caps ----
+const exploreOn = (ms = 60000) => ({ explore: { [O]: Date.now() + ms } });
+const msg = (c, m) => handleMessage(c, { id: "9", ...m }, helpers, "1");
+
+test("approval: required, then approved, then hash changed, then revoked", async () => {
+  const c = mockChrome({ tabs: [tab(1, "/")], approve: false });
+  const r = await run(c);
+  assert.equal(r.error.code, "NEEDS_APPROVAL"); assert.equal(c.calls.length, 0);
+  assert.equal(c.data.pending[KEY].site, O); assert.equal(c.data.pending[KEY].hash, HASH);
+  c.data.approved = { [KEY]: c.data.pending[KEY] };
+  assert.equal((await run(c)).ok, true);
+  assert.equal((await run(c, { source: "async () => 2" })).error.code, "NEEDS_APPROVAL");
+  assert.equal((await run(c, { version: 2 })).error.code, "NEEDS_APPROVAL");
+  c.data.approved = {};
+  assert.equal((await run(c)).error.code, "NEEDS_APPROVAL");
+});
+test("draft run: no approval, but only while the explore window is open", async () => {
+  const closed = mockChrome({ tabs: [tab(1, "/")], approve: false });
+  assert.equal((await run(closed, { draft: true })).error.code, "EXPLORE_OFF");
+  const open = mockChrome({ tabs: [tab(1, "/")], approve: false, store: exploreOn() });
+  assert.equal((await run(open, { draft: true })).ok, true);
+  const expired = mockChrome({ tabs: [tab(1, "/")], approve: false, store: exploreOn(-1) });
+  assert.equal((await run(expired, { draft: true })).error.code, "EXPLORE_OFF");
+});
+test("signin marker is checked in the tab: SIGNED_OUT names the login URL", async () => {
+  const c = mockChrome({ tabs: [tab(1, "/")], exec: (o) => { assert.match(o.js[0].code, /querySelector\("a\.me"\)/); return [{ result: { ok: false, signedOut: true } }]; } });
+  const r = await run(c, { signin: { marker: "a.me", loginUrl: `${O}/login` } });
+  assert.equal(r.error.code, "SIGNED_OUT"); assert.match(r.error.message, /\/login/);
+});
+test("explore/snapshot/capture: closed and expired window refuse and never execute", async () => {
+  for (const store of [{}, exploreOn(-5)])
+    for (const type of ["snapshot", "explore", "capture"]) {
+      const c = mockChrome({ tabs: [tab(1, "/")], store });
+      const r = await msg(c, { type, tabId: 1, code: "return 1", timeoutMs: 500 });
+      assert.equal(r.error.code, "EXPLORE_OFF"); assert.equal(c.calls.length, 0);
+    }
+});
+test("explore: open window runs code in USER_SCRIPT world and returns JSON", async () => {
+  const c = mockChrome({ tabs: [tab(1, "/")], store: exploreOn(), exec: () => [{ result: { ok: true, value: '{"n":3}' } }] });
+  const r = await msg(c, { type: "explore", tabId: 1, code: "return {n:3}", timeoutMs: 500 });
+  assert.deepEqual(r.value, { n: 3 }); assert.equal(c.calls[0].world, "USER_SCRIPT");
+  assert.match(c.calls[0].js[0].code, /return \{n:3\}/);
+});
+test("explore refuses ungranted sites, unknown tabs and non-web tabs", async () => {
+  const a = mockChrome({ granted: [], tabs: [tab(1, "/")], store: exploreOn() });
+  assert.equal((await msg(a, { type: "snapshot", tabId: 1 })).error.code, "SITE_NOT_GRANTED");
+  const b = mockChrome({ tabs: [tab(1, "/")], store: exploreOn() });
+  assert.equal((await msg(b, { type: "snapshot", tabId: 99 })).error.code, "NO_TAB");
+});
+test("snapshot and capture results are size-capped", async () => {
+  const big = (n) => () => [{ result: { ok: true, value: JSON.stringify("x".repeat(n)) } }];
+  const s = await msg(mockChrome({ tabs: [tab(1, "/")], store: exploreOn(), exec: big(CAPS.snapshot) }), { type: "snapshot", tabId: 1 });
+  assert.equal(s.error.code, "SCRIPT_ERROR"); assert.match(s.error.message, /cap/);
+  const ok = await msg(mockChrome({ tabs: [tab(1, "/")], store: exploreOn(), exec: big(1000) }), { type: "snapshot", tabId: 1 });
+  assert.equal(ok.value.length, 1000);
+  const cap = await msg(mockChrome({ tabs: [tab(1, "/")], store: exploreOn(), exec: big(CAPS.capture) }), { type: "capture", tabId: 1 });
+  assert.equal(cap.error.code, "SCRIPT_ERROR");
+});
+test("master switch off refuses explore requests", async () => {
+  const c = mockChrome({ enabled: false, tabs: [tab(1, "/")], store: exploreOn() });
+  assert.equal((await msg(c, { type: "capture", tabId: 1 })).error.code, "NO_BRIDGE"); assert.equal(c.calls.length, 0);
+});
+test("tabs with no origins lists every http(s) tab with granted/explore", async () => {
+  const c = mockChrome({ tabs: [tab(1, "/", { title: "T", active: true }), { id: 2, url: "chrome://extensions" }, { id: 3, url: "https://other.example/" }], store: exploreOn() });
+  const r = await msg(c, { type: "tabs" });
+  assert.deepEqual(r.value, [
+    { id: 1, url: `${O}/`, title: "T", active: true, granted: true, explore: true },
+    { id: 3, url: "https://other.example/", title: "", active: false, granted: false, explore: false },
+  ]);
+});
+test("snapshot script compiles and builds an outline from a DOM (prover: a bare \\n in the template once broke it)", async () => {
+  let calls;
+  const c = mockChrome({ tabs: [tab(1, "/")], store: exploreOn(), exec: (o) => { calls = o; return [{ result: { ok: true, value: "null" } }]; } });
+  await msg(c, { type: "snapshot", tabId: 1 });
+  const el = (tagName, attrs = {}, kids = []) => ({ tagName, getAttribute: (k) => attrs[k] ?? null, childNodes: kids.map((k) => (typeof k === "string" ? { nodeType: 3, textContent: k } : k)), children: kids.filter((k) => typeof k !== "string") });
+  const body = el("BODY", {}, [el("H1", {}, ["Title"]), el("UL", {}, [el("LI", {}, ["one"]), el("LI", {}, ["two"])]), el("A", { "aria-label": "Go" }, ["x"])]);
+  const vm = await import("node:vm");
+  const out = await vm.runInNewContext(calls.js[0].code, { document: { body } });
+  assert.equal(out.ok, true, JSON.stringify(out));
+  assert.equal(JSON.parse(out.value), '  heading: Title\n  list\n    listitem: one\n    listitem: two\n  link "Go": x');
+});
+
+test("Node and the extension compute the same run hash (key order and defaults do not matter)", async () => {
+  const { runHash: nodeHash } = await import("../../dist/runtime/runners/page.js");
+  const m = { source: "async()=>1", world: "USER_SCRIPT", urlPattern: "/a*", origins: [O], signin: { marker: "#m", loginUrl: "https://x.test/l" }, needsVisible: true };
+  assert.equal(nodeHash(m), await runHash({ ...m, signin: { loginUrl: "https://x.test/l", marker: "#m" } }));
+  assert.equal(nodeHash({ source: "s", world: "USER_SCRIPT", origins: [O], needsVisible: false }), await runHash({ source: "s", origins: [O] }));
 });
