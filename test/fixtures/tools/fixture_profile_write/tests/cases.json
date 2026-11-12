@@ -1,0 +1,5 @@
+[
+  { "name": "dry run fills the form", "purpose": "a rehearsal reaches the commit mark without saving", "input": { "name": "Ada" }, "expect": "result" },
+  { "name": "second dry run", "purpose": "another name, still a rehearsal", "input": { "name": "Ben", "dryRun": true }, "expect": "result" },
+  { "name": "blank name rejected", "purpose": "invalid input is refused before the site is touched", "input": { "name": "" }, "expect": "invalid_input" }
+]

@@ -2,7 +2,39 @@
 // and the Node side reads it with readPageHelpers(). Keep it self-contained.
 (() => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Write tools: the runner arms this once with the runtime's dryRun; the tool cannot re-arm it or set `saved` itself.
+  let armed = false, dry = true, saved = false;
   const wm = {
+    _arm(d) { if (!armed) { armed = true; dry = d !== false; } },
+    committed: () => saved,
+    /** Type a value into a field (native setter + input/change events). Never clicks or submits. */
+    fill(selector, value) {
+      const el = document.querySelector(selector);
+      if (!el) throw new Error("fill: no element for " + selector);
+      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value").set.call(el, String(value));
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    },
+    /** Ask the user to press Save themselves. Waits for `until` (a selector that appears once saved), up to timeoutSec. Never clicks. dryRun: returns at once. */
+    async handOff({ prompt, until, timeoutSec = 120 }) {
+      if (dry) return { committed: false, dryRun: true };
+      if (typeof until !== "string" || !until) throw new Error("handOff needs `until`: a selector that appears once the user has saved");
+      if (document.querySelector(until)) throw new Error("handOff: `until` already matches before the user saved; use a selector that appears only after Save");
+      const bar = document.createElement("div");
+      bar.textContent = String(prompt || "Review the form, then save it yourself.");
+      bar.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:2147483647;padding:8px;background:#fde68a;color:#111;font:14px sans-serif;text-align:center";
+      document.body.appendChild(bar);
+      const end = Date.now() + Math.min(Number(timeoutSec) || 120, 900) * 1000;
+      try {
+        while (Date.now() < end) {
+          if (document.querySelector(until)) return { committed: (saved = true) };
+          await sleep(250);
+        }
+        return { committed: false, possibleCommit: false, timedOut: true, reason: "timed out waiting for the user to save" };
+      } finally { bar.remove(); }
+    },
     async waitFor(selector, timeoutMs = 5000) {
       const end = Date.now() + timeoutMs;
       while (Date.now() < end) {

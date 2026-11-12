@@ -9,6 +9,8 @@ import { listToolNames, readManifest } from "../runtime/load.js";
 import { readGuide } from "./guides.js";
 import { pageCapture, pageExplore, pageSnapshot, pageTabs } from "../bridge/minting.js";
 import { runTool } from "../runtime/run.js";
+import { WriteState } from "../runtime/write.js";
+import { makeHelper } from "../runtime/runners/playwright.js";
 
 const FIXED = RESERVED_NAMES;
 
@@ -57,6 +59,19 @@ const fixedTools = [
     inputSchema: obj({ code: { type: "string" } }, ["code"]),
   },
   {
+    name: "mint_effect",
+    description:
+      'Start a mint as "read" (default) or "write". Only a write mint may use `act` or save a tool with effect "write" (browser tools: commitMarks + wm.commit; page tools: wm.fill + wm.handOff). Read the guide "writes" first.',
+    inputSchema: obj({ effect: { type: "string", enum: ["read", "write"] } }, ["effect"]),
+  },
+  {
+    name: "act",
+    description:
+      "Write mints only (mint_effect write). Like explore, but allowed to change the site: runs JavaScript as an async function body with `page` and `wm` (wm.commit(mark, fn) is where saving happens) in the minting browser. dryRun defaults to true (wm.commit skips its function). Claude Code asks you each time. Returns { committed, possibleCommit, marksReached, result }.",
+    annotations: { destructiveHint: true },
+    inputSchema: obj({ code: { type: "string" }, dryRun: { type: "boolean" } }, ["code"]),
+  },
+  {
     name: "page_tabs",
     description:
       "Page tools: list the open tabs the website-mcp extension can see in the user's own browser: { id, url, title, active, granted, explore }. granted = the user allowed that site in the extension popup; explore = the popup's explore window is open for it (page_snapshot, page_explore and page_capture need it). Needs the extension loaded and the bridge installed.",
@@ -83,7 +98,7 @@ const fixedTools = [
   {
     name: "save_tool",
     description:
-      "Save a DRAFT tool (it is not callable as a tool until published). `tool` is the tool.json object (description, input, output JSON Schemas, effect \"read\", kind default \"browser\", site.allowedOrigins, optional resultsPath = dot path to the output's main list). `source` is the tool.mjs text with a default export `async ({ page, input, wm }) => result`. For kind \"page\" the source is `async ({ input, wm }) => result` that runs inside the user's tab (read the guide \"page-tools\" first). Next: save_cases, test_tool, the website-mcp-reviewer subagent, submit_review, publish_tool.",
+      "Save a DRAFT tool (it is not callable as a tool until published). `tool` is the tool.json object (description, input, output JSON Schemas, effect \"read\" or \"write\" (write: needs mint_effect first), kind default \"browser\", site.allowedOrigins, optional resultsPath = dot path to the output's main list). `source` is the tool.mjs text with a default export `async ({ page, input, wm }) => result`. For kind \"page\" the source is `async ({ input, wm }) => result` that runs inside the user's tab (read the guide \"page-tools\" first). Next: save_cases, test_tool, the website-mcp-reviewer subagent, submit_review, publish_tool.",
     inputSchema: obj(
       {
         name: { type: "string", description: "^[a-z][a-z0-9_]{1,62}$" },
@@ -114,7 +129,7 @@ const fixedTools = [
   {
     name: "guide",
     description:
-      "Minting guidance. topic is one of the authoring guides (core, testing, pagination, search, publication, page-tools, hard-targets); read core first, and the others when the task involves them. An unknown or missing topic returns the list of topics.",
+      "Minting guidance. topic is one of the authoring guides (core, testing, pagination, search, publication, page-tools, hard-targets, writes); read core first, and the others when the task involves them. An unknown or missing topic returns the list of topics.",
     inputSchema: obj({ topic: { type: "string" } }),
   },
   {
@@ -140,13 +155,13 @@ const fixedTools = [
 ];
 
 function dynamicTools() {
-  const out: { name: string; description: string; inputSchema: object }[] = [];
+  const out: { name: string; description: string; inputSchema: object; annotations?: { destructiveHint: boolean } }[] = [];
   for (const n of listToolNames()) {
     if (FIXED.includes(n)) continue;
     try {
       const m = readManifest(n);
       if ((m.input as { type?: unknown }).type !== "object") continue;
-      out.push({ name: n, description: m.description ?? `Saved tool ${n}`, inputSchema: m.input });
+      out.push({ name: n, description: m.description ?? `Saved tool ${n}`, inputSchema: m.input, ...(m.effect === "write" ? { annotations: { destructiveHint: true } } : {}) });
     } catch {
       /* skip broken tool folders */
     }
@@ -158,6 +173,19 @@ const text = (value: unknown, label: string, isError = false) => ({
   content: [{ type: "text" as const, text: capResult(typeof value === "string" ? value : JSON.stringify(value, null, 2), label) }],
   ...(isError ? { isError: true } : {}),
 });
+
+/** act: like explore, but with wm.commit. The caller has already checked the mint is a write mint. */
+async function actCode(p: Page, code: string, dryRun: boolean): Promise<unknown> {
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...a: string[]) => (page: Page, wm: unknown) => Promise<unknown>;
+  const state = new WriteState(dryRun);
+  let result: unknown;
+  try {
+    result = await new AsyncFunction("page", "wm", code)(p, makeHelper(state));
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e), ...state.outcome(), dryRun, marksReached: [...state.reached] };
+  }
+  return { ...state.outcome(), dryRun, marksReached: [...state.reached], result: result === undefined ? null : JSON.parse(JSON.stringify(result)) };
+}
 
 async function exploreCode(p: Page, code: string): Promise<unknown> {
   // SECURITY NOTE: this executes model-written code inside the server process, by design.
@@ -195,6 +223,11 @@ export async function startServer(): Promise<void> {
           return text(await ariaSnapshot(await getPage()), "snapshot");
         case "explore":
           return text(await exploreCode(await getPage(), String(args.code ?? "")), "explore");
+        case "mint_effect":
+          return text(session.setEffect(args.effect), "mint_effect");
+        case "act":
+          session.assertWrite("act");
+          return text(await actCode(await getPage(), String(args.code ?? ""), args.dryRun !== false), "act");
         case "save_tool":
           return text(session.saveDraft(args.name, args.tool, args.source, args.signin), "save_tool");
         case "page_tabs":

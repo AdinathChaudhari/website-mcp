@@ -7,6 +7,7 @@ import { PlaywrightRunner } from "./runners/playwright.js";
 import { PageRunner } from "./runners/page.js";
 import { PageEvalRunner } from "./runners/page-eval.js";
 import type { Runner } from "./runners/types.js";
+import { WriteState } from "./write.js";
 import { validate } from "./schema.js";
 
 const runners: Record<string, Runner> = {
@@ -43,8 +44,15 @@ export async function runTool(name: string, input: unknown, opts: RunOptions = {
   // Claim the slot now (check + write, no await between), so parallel and failing runs both count as visits.
   const release = live ? reserveInterval(rateKey, manifest.minIntervalSec) : () => {};
 
+  // A write run is attempted exactly once: nothing below (or in a caller) re-invokes the tool, and a failure that reached the page keeps its slot.
+  const isWrite = manifest.effect === "write";
+  const dryRun = isWrite && (input as { dryRun?: unknown } | null)?.dryRun !== false;
+  const write = isWrite ? new WriteState(dryRun, manifest.kind === "page" ? undefined : manifest.commitMarks) : undefined;
+  const toolInput = isWrite ? { ...(input as object), dryRun } : input;
+
   const seconds = manifest.timeoutSec ?? 60;
   const ac = new AbortController();
+  if (write) write.signal = ac.signal;
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
@@ -55,22 +63,32 @@ export async function runTool(name: string, input: unknown, opts: RunOptions = {
 
   let result: unknown;
   try {
-    result = await Promise.race([runner.run({ manifest, fn: tool.fn, dir: tool.dir, input, signal: ac.signal, draft: !!(opts.draft || opts.baseDir), capture: opts.capture }), timeout]);
+    result = await Promise.race([runner.run({ manifest, fn: tool.fn, dir: tool.dir, input: toolInput, signal: ac.signal, draft: !!(opts.draft || opts.baseDir), capture: opts.capture, write }), timeout]);
   } catch (e) {
     // Only failures that never reached the page give the slot back.
-    if (e instanceof WebsiteMcpError && NEVER_REACHED_PAGE.has(e.code)) release();
+    const neverReached = e instanceof WebsiteMcpError && NEVER_REACHED_PAGE.has(e.code);
+    if (neverReached) release();
+    // A page write that reached the tab and then failed may have been saved by the user: say so rather than "not committed".
+    if (write && manifest.kind === "page" && !neverReached && !(e instanceof InvalidInput) && !write.dryRun) write.pageUncertain = true;
+    if (write && e instanceof WebsiteMcpError) e.outcome = write.outcome();
     if (e instanceof WebsiteMcpError && e.code === "CHALLENGE" && live) {
       // Stop for good: a blocked visit counts for the interval, and a mint may not spend more live runs.
       recordRun(rateKey);
       if (opts.draft) markChallenged(join(draftsDir(), name), e.message);
     }
     if (e instanceof WebsiteMcpError) throw e;
-    throw new ToolFailed(e instanceof Error ? e.message : String(e));
+    const failed = new ToolFailed(e instanceof Error ? e.message : String(e));
+    if (write) failed.outcome = write.outcome();
+    throw failed;
   } finally {
     clearTimeout(timer);
   }
 
   const vout = validate(manifest.output, result);
   if (!vout.ok) throw new InvalidOutput(`${name}: ${vout.errors}`);
+  if (write) {
+    // Write results always say what happened: the tool's own output sits under `result`.
+    return { committed: write.committed, possibleCommit: write.possibleCommit, dryRun: write.dryRun, marksReached: [...write.reached].sort(), result };
+  }
   return result;
 }

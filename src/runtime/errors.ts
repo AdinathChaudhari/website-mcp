@@ -25,6 +25,8 @@ export class WebsiteMcpError extends Error {
   readonly code: ErrorCode;
   /** Optional structured detail (e.g. publish refusal reasons), included in the JSON payload. */
   readonly details?: unknown;
+  /** Write tools only: what is known about the change when the run failed. Set by runTool, never by a tool. */
+  outcome?: { committed: boolean; possibleCommit: boolean };
   constructor(code: ErrorCode, message: string, details?: unknown) {
     super(message);
     this.name = new.target.name;
@@ -85,9 +87,9 @@ export class BridgeError extends WebsiteMcpError {
   }
 }
 
-export function toErrorPayload(e: unknown): { error: { code: string; message: string; reasons?: unknown } } {
+export function toErrorPayload(e: unknown): { error: { code: string; message: string; reasons?: unknown; committed?: boolean; possibleCommit?: boolean } } {
   if (e instanceof WebsiteMcpError) {
-    return { error: { code: e.code, message: e.message, ...(e.details !== undefined ? { reasons: e.details } : {}) } };
+    return { error: { code: e.code, message: e.message, ...(e.details !== undefined ? { reasons: e.details } : {}), ...(e.outcome ?? {}) } };
   }
   return { error: { code: "tool_failed", message: e instanceof Error ? e.message : String(e) } };
 }

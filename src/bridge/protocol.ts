@@ -60,6 +60,9 @@ export interface RunRequest {
   tab: "existing";
   timeoutMs: number;
   needsVisible?: boolean;
+  /** Write tools: the extension wraps the value as { value, committed }, arms the helpers with dryRun and shows a badge while waiting. */
+  effect?: "write";
+  dryRun?: boolean;
 }
 /** Result of `tabs`: every open http(s) tab the extension can see. `granted` = the user allowed the tab's site; `explore` = the explore window is open for it. */
 export interface TabInfo {

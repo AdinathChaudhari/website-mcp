@@ -1,4 +1,5 @@
 import type { ToolManifest } from "../load.js";
+import type { WriteState } from "../write.js";
 
 export type ToolFn = (args: {
   /** Playwright Page for kind "browser"; absent for page tools (they run in the user's tab). */
@@ -16,6 +17,8 @@ export interface RunContext {
   signal: AbortSignal;
   /** True when running a draft (or a staged copy of one), not a published version. */
   draft?: boolean;
+  /** effect "write" only: the runtime's record of what the run committed. Runners fill it in; tools cannot. */
+  write?: WriteState;
   /** Absolute path of the capture .html for the page-eval runner. */
   capture?: string;
 }

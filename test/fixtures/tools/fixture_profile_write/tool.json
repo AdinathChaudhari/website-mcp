@@ -1,0 +1,19 @@
+{
+  "name": "fixture_profile_write",
+  "description": "Set the profile name on the fixture site.",
+  "effect": "write",
+  "kind": "browser",
+  "commitMarks": ["save_profile"],
+  "site": { "allowedOrigins": ["__ORIGIN__"] },
+  "input": {
+    "type": "object",
+    "properties": { "name": { "type": "string", "minLength": 1 }, "delayMs": { "type": "integer", "minimum": 0 } },
+    "required": ["name"],
+    "additionalProperties": false
+  },
+  "output": {
+    "type": "object",
+    "properties": { "filled": { "type": "string" } },
+    "required": ["filled"]
+  }
+}

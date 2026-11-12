@@ -3,7 +3,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PublishRefused } from "../runtime/errors.js";
-import { NAME_RE, assertManifestShape, assertPageBlock, homeDir, toolsDir } from "../runtime/load.js";
+import { NAME_RE, assertManifestShape, assertPageBlock, assertWriteBlock, homeDir, toolsDir } from "../runtime/load.js";
 import { assertSchema } from "../runtime/schema.js";
 import { scanPageSource } from "./page-gate.js";
 import { readReview, reviewProblem } from "./review.js";
@@ -12,7 +12,7 @@ import { LIVE_CAP, LIVE_CAP_HARD } from "./live.js";
 import { MIN_CASES, MIN_PASS_RATE, caseMode, caseProblems, hashCases, hashSource, readCases, runCases, type LastRun } from "./tests.js";
 
 export interface Reason {
-  code: "no_draft" | "too_few_cases" | "bad_cases" | "pass_rate" | "bad_manifest" | "bad_schema" | "bad_source" | "origin" | "secret" | "review" | "page_source" | "signin" | "review_main" | "live_proof" | "hard_target_interval";
+  code: "no_draft" | "too_few_cases" | "bad_cases" | "pass_rate" | "bad_manifest" | "bad_schema" | "bad_source" | "bad_write" | "write_no_handoff" | "write_no_commit" | "marks_unreached" | "origin" | "secret" | "review" | "page_source" | "signin" | "review_main" | "live_proof" | "hard_target_interval";
   message: string;
   /** Failing case names, for pass_rate refusals. */
   cases?: string[];
@@ -97,8 +97,15 @@ export function staticChecks(dir: string): Reason[] {
   } catch (e) {
     return [{ code: "bad_manifest", message: `tool.json is not valid JSON: ${(e as Error).message}` }];
   }
-  if (m.effect !== "read") reasons.push({ code: "bad_manifest", message: 'effect must be "read" in this version' });
+  if (m.effect !== "read" && m.effect !== "write") reasons.push({ code: "bad_manifest", message: 'effect must be "read" or "write"' });
   const kind = m.kind ?? "browser";
+  if (m.effect === "write" || m.commitMarks !== undefined) {
+    try {
+      assertWriteBlock(m as { effect?: unknown; kind?: unknown; commitMarks?: unknown; hardTarget?: unknown; input?: unknown }, "tool");
+    } catch (e) {
+      reasons.push({ code: "bad_write", message: (e as Error).message });
+    }
+  }
   if (kind !== "browser" && kind !== "page") reasons.push({ code: "bad_manifest", message: 'kind must be "browser" or "page"' });
   if (kind === "page") {
     try {
@@ -132,7 +139,17 @@ export function staticChecks(dir: string): Reason[] {
     if (se) reasons.push({ code: "bad_source", message: `tool.mjs has a syntax error: ${se}` });
   }
   if (kind === "page" && /export\s+default/.test(source)) {
-    for (const p of scanPageSource(source).problems) reasons.push({ code: "page_source", message: p });
+    for (const p of scanPageSource(source, { write: m.effect === "write" }).problems) reasons.push({ code: "page_source", message: p });
+  }
+  if (m.effect === "write" && /export\s+default/.test(source)) {
+    if (kind === "page") {
+      if (!/\bwm\s*\.\s*handOff\s*\(/.test(source)) reasons.push({ code: "write_no_handoff", message: "a page write tool must end in wm.handOff({ prompt, until, timeoutSec }): the user presses Save, never the tool" });
+    } else if (Array.isArray(m.commitMarks)) {
+      if (!/\bwm\s*\.\s*commit\s*\(/.test(source)) reasons.push({ code: "write_no_commit", message: "a browser write tool must save/submit inside wm.commit(mark, fn); the source has no wm.commit call" });
+      for (const mark of m.commitMarks as string[]) {
+        if (!new RegExp(`\\bwm\\s*\\.\\s*commit\\s*\\(\\s*["'\`]${mark}["'\`]`).test(source)) reasons.push({ code: "write_no_commit", message: `commitMarks lists "${mark}" but the source has no wm.commit("${mark}", ...)` });
+      }
+    }
   }
   const origins = ((m.site as { allowedOrigins?: unknown } | undefined)?.allowedOrigins ?? []) as string[];
   if (kind === "page" && existsSync(join(dir, "signin.json"))) {
@@ -238,6 +255,15 @@ async function publishFromStage(name: string, draftDir: string, stageRoot: strin
     const m = JSON.parse(readFileSync(join(snap, "tool.json"), "utf8")) as { resultsPath?: string };
     run = await runCases(name, snap, { draft: true, version: null, resultsPath: m.resultsPath, baseDir: stageRoot, skipLive: true });
   }
+  const wm_ = manifestOf(snap) as { effect?: string; commitMarks?: string[] };
+  if (wm_.effect === "write" && kind !== "page" && run.sourceHash === hashSource(snap)) {
+    // A write tool must have reached every declared commit mark in a real run of this exact source (a dry run reaches a mark without saving).
+    const reached = new Set(run.results.filter((r) => r.pass).flatMap((r) => r.marks ?? []));
+    const missing = (wm_.commitMarks ?? []).filter((x) => !reached.has(x));
+    if (missing.length) {
+      throw refusal(name, [{ code: "marks_unreached", message: `no passing case ever reached the commit mark(s): ${missing.join(", ")}. Add a case whose input gets the tool to wm.commit("${missing[0]}", ...) (cases run as a dry run, so nothing is saved)` }]);
+    }
+  }
   if (kind === "page") {
     // Proof rule: >= 3 capture cases, all passing, AND >= 1 live pass recorded for this exact source.
     const cap = run.results.filter((r) => r.mode === "capture");
@@ -309,9 +335,9 @@ async function publishFromStage(name: string, draftDir: string, stageRoot: strin
   return { published: name, version, ...(previous !== undefined ? { previous } : {}), lastRun };
 }
 
-function manifestOf(dir: string): { kind?: string; page?: { world?: string } } {
+function manifestOf(dir: string): { kind?: string; effect?: string; commitMarks?: string[]; page?: { world?: string } } {
   try {
-    return JSON.parse(readFileSync(join(dir, "tool.json"), "utf8")) as { kind?: string; page?: { world?: string } };
+    return JSON.parse(readFileSync(join(dir, "tool.json"), "utf8")) as { kind?: string; effect?: string; commitMarks?: string[]; page?: { world?: string } };
   } catch {
     return {};
   }

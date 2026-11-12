@@ -63,7 +63,7 @@ the open tab shows, `hardTarget: true` with `minIntervalSec` >= 60, stop on any 
   Otherwise the call waits the full 30 s default timeout, even inside `.catch`.
 - Wait for outcomes, never for time: use `wm.waitForOutcome`.
 - Any edit to tool.mjs or tool.json after a review makes the review stale. Re-test, re-review, re-submit.
-- No secrets, no logins, no writes in this version. Keep results small (over 16 KiB is truncated).
+- No secrets, no logins. Writes only through the explicit write mint (`mint_effect`, see the writes guide); `explore` must never change state. Keep results small (over 16 KiB is truncated).
 
 ## Page loop (kind "page")
 

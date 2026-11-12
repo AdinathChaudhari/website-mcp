@@ -29,6 +29,8 @@ export interface CaseResult {
   error?: string;
   /** Present for page tools. */
   mode?: CaseMode;
+  /** Write tools: commit marks this case's run reached (a dry run reaches them without saving). */
+  marks?: string[];
 }
 
 export const CAPTURE_FILE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.html$/;
@@ -177,10 +179,17 @@ export interface CaseEnv {
   skipLive?: boolean;
 }
 
+/** A write run's result: { committed, possibleCommit, dryRun, marksReached, result }. */
+function isWriteResult(o: unknown): o is { marksReached: string[]; result: unknown } {
+  return !!o && typeof o === "object" && Array.isArray((o as { marksReached?: unknown }).marksReached) && "possibleCommit" in o;
+}
+
 export async function runCase(name: string, c: TestCase, env: CaseEnv, resultsPath?: string): Promise<CaseResult> {
   const t0 = performance.now();
   const mode = env.kind === "page" ? caseMode(c, env.kind) : undefined;
+  let marks: string[] | undefined;
   const done = (pass: boolean, error?: string): CaseResult => ({
+    ...(marks ? { marks } : {}),
     name: c.name,
     pass,
     ms: Math.round(performance.now() - t0),
@@ -198,9 +207,10 @@ export async function runCase(name: string, c: TestCase, env: CaseEnv, resultsPa
       env.reserveLive?.();
     }
     const out = await runTool(name, c.input, { draft: env.draft, baseDir: env.baseDir, ...(capture ? { capture } : {}) });
+    if (isWriteResult(out)) marks = out.marksReached;
     if (c.expect === "invalid_input") return done(false, "expected invalid_input but the tool returned a result");
     if (c.expect === "signed_out") return done(false, "expected SIGNED_OUT but the tool returned a result");
-    const { list, error } = mainList(out, resultsPath);
+    const { list, error } = mainList(isWriteResult(out) ? out.result : out, resultsPath);
     if (c.expect === "empty") {
       if (error) return done(false, error);
       if (!list) return done(false, "expected empty but the output has no list (set resultsPath in tool.json)");

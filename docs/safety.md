@@ -15,7 +15,7 @@ Do not describe the scan as a sandbox, in docs or in the UI.
 ## What actually protects the user
 
 1. **Per-site grant.** The extension only touches origins the user granted with "Allow this site". No grant, `SITE_NOT_GRANTED`.
-2. **Explore window.** Draft runs, snapshots, explore and capture work only while the user has opened a 15 minute explore window for that origin.
+2. **Explore window.** Draft runs, snapshots, explore and capture work only while the user has opened a 15 minute explore window for that origin. `explore` runs arbitrary code with `page` and is not gated by `mint_effect`, so in a read mint it could click Save: that gate on `act` is a convention, not a boundary. Guides and the reviewer say explore must not change state.
 3. **Per-version approval, bound to the code.** A published tool version runs only after the user clicks Approve in the popup. The extension computes the approval hash itself: sha256 of a canonical form of `{source, world, urlPattern, origins, signin, needsVisible}`. It ignores any hash the requester sends. Changing the code, world, URL pattern, origins, sign-in check or visibility changes the hash and asks again. The popup shows the first 12 characters, as does the `NEEDS_APPROVAL` message, so the user can compare them.
 4. **Network CSP on the USER_SCRIPT world.** `sw.js` calls `chrome.userScripts.configureWorld({csp: "connect-src 'none'; script-src 'self'"})` on every worker start. Checked in Chrome for Testing: `fetch` from the page's own origin succeeds before the call and fails (`TypeError: Failed to fetch`) after it, but only in documents created after the call; tabs already loaded keep the old world until reloaded. `world: "MAIN"` is not covered, which is why it needs a reviewer note.
 
@@ -30,3 +30,21 @@ Do not describe the scan as a sandbox, in docs or in the UI.
 - Approval is only as good as the user's reading of the tool. The popup shows name, version, site and hash, not the code.
 - The CSP stops fetch-style requests from the USER_SCRIPT world, not DOM-based exfiltration (above).
 - Any process running as the same OS user can talk to the 0600 bridge socket. That is why approval is computed and checked in the extension, not trusted from the request.
+
+## Writes (effect "write")
+
+A write tool changes something on a site. The boundary, outermost first:
+
+1. **Grant and approval.** Page write tools run only on a site the user allowed in the extension popup, and only for a version
+   the user approved. For write tools the approval hash also covers the helper text (`wm.fill`, `wm.handOff`).
+2. **Explicit start.** `act` and saving a write tool need `mint_effect({ effect: "write" })`. A read mint cannot change anything.
+3. **Prompt every time.** `act` and every saved write tool carry `destructiveHint: true`, so Claude Code asks before each run.
+   (Whether a blanket allow rule skips that prompt is an open question; a PreToolUse hook returning `ask` is the fallback.)
+4. **Rehearsal by default.** Every write tool has an automatic `dryRun` input, default true. `wm.commit` skips its callback;
+   `wm.handOff` returns at once. Tests and the publish gate run only as dry runs.
+5. **One commit place.** Browser tools save only inside `wm.commit(mark, fn)`; marks are declared in `tool.json` and a
+   passing case must reach each one before publish. Page tools never press the final control: the user does, after
+   `wm.handOff`. The static scan is best-effort: it refuses `click`/`submit`/`requestSubmit` as any name (including optional calls, destructuring and `.call`), `dispatchEvent`, `.prototype` access and string-literal computed keys, but JavaScript can be obfuscated further. The reviewer checks the same things as a second layer; the user pressing Save is the only boundary.
+6. **Honest results.** Every write result carries `committed` and `possibleCommit`. A run killed or failed inside a commit
+   reports `possibleCommit: true`. The runtime never retries a write, and a write that reached the page keeps its interval slot.
+7. **No hard targets.** Write tools are refused on a `hardTarget` site.
