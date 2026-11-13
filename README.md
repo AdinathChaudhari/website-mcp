@@ -2,7 +2,7 @@
 GitHub metadata, authored here and applied by hand in repo Settings (not rendered on the page):
 About:  Mint any website task into a tested, deterministic MCP tool with Claude Code, then replay it with no model — Playwright browser tools plus page tools that run in your own Chrome tab.
 Topics (ranked): mcp, model-context-protocol, claude-code, claude-code-plugin, browser-automation, playwright, web-scraping, chrome-extension, native-messaging, mv3, deterministic, tool-generation, typescript, nodejs, cli
-Social preview: docs/media/hero.png at 1280x640 once the asset exists.
+Social preview: docs/media/hero-glass.jpg (1280x640, derived from docs/media/hero.png 1536x1024 via Tools/image_compress.py --glass), uploaded by hand.
 -->
 
 # website-mcp — Website to Deterministic MCP Tool
@@ -13,8 +13,9 @@ Social preview: docs/media/hero.png at 1280x640 once the asset exists.
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![TypeScript](https://img.shields.io/badge/typescript-node%2022%2B-blue)
 ![MCP](https://img.shields.io/badge/MCP-stdio-informational)
+[![npm](https://img.shields.io/npm/v/website-mcp)](https://www.npmjs.com/package/website-mcp)
 
-<!-- HERO IMAGE PLACEHOLDER: ![hero](docs/media/hero.png) — keep commented out until the asset exists. -->
+<img src="docs/media/hero.png" width="720" alt="website-mcp: a browser window with a dotted path that becomes a small glowing tool piece">
 
 You type `/website-mcp:mint <task> on <site>`. Claude explores the site, writes a script, proves it against test cases, gets it reviewed, and saves it as a tool. After that the tool is a plain file: it runs instantly, costs nothing, and gives the same answer shape every time.
 
@@ -48,28 +49,31 @@ Browser tools work now. Page tools need one more setup, below. That's it for the
 
 ## Demo
 
-Output of the test suite (`test/browser`) running a saved tool against the repo's local fixture site (`test/fixtures/site/`), no model involved. It is not a command you can paste from a fresh checkout: the fixture server and origin are set up by the tests.
+A real run of a published browser tool, `books_by_category`, minted against the public scraping sandbox [books.toscrape.com](https://books.toscrape.com). No model is involved in either command.
 
 ```
-$ website-mcp test fixture_search
-case          result  ms     error
-tag_alpha     PASS    174
-tag_beta      PASS    162
-tag_gamma     PASS    163
-no_match      PASS    161
-blank_query   PASS    116
-empty_string  PASS    1
+$ website-mcp test books_by_category
+case                  result  ms     error
+first_page            PASS    3531
+two_pages             PASS    4819
+later_page            PASS    3601
+single_page_category  PASS    3019
+past_the_end          PASS    2294
+unknown_category      PASS    2025
+blank_category        PASS    2
+too_many_pages        PASS    2
 
-6/6 passed (100%); bar: >=3 cases and >=70% -> OK
+8/8 passed (100%); bar: >=3 cases and >=70% -> OK
 
-$ website-mcp run fixture_search --input '{"q":"alpha"}'
+$ website-mcp run books_by_category --input '{"category":"Travel","maxPages":1}'
 {
-  "items": [
-    "Fixture item 01",
-    "Fixture item 06",
-    "Fixture item 11",
-    "Fixture item 16",
-    "Fixture item 21"
+  "category": "Travel",
+  "pages": 1,
+  "stopped": "max_pages",
+  "rows": [
+    { "title": "It's Only the Himalayas", "price": "£45.17", "availability": "In stock" },
+    { "title": "Full Moon over Noah’s Ark: An Odyssey to Mount Ararat and Beyond", "price": "£49.43", "availability": "In stock" },
+    …11 rows in all
   ]
 }
 ```
@@ -111,8 +115,14 @@ A page tool is model-written code running in your signed-in tab, so read [`docs/
 
 ## Status
 
-Phases 1 to 8 are built (see [`CHANGELOG.md`](CHANGELOG.md)). Not yet: a Chrome Web Store listing, a local-model minter, auto-repair. Prior art and what was and was not borrowed: [`docs/prior-art.md`](docs/prior-art.md).
+Phases 1 to 8 are built and published as [`website-mcp`](https://www.npmjs.com/package/website-mcp) on npm (see [`CHANGELOG.md`](CHANGELOG.md)). Not yet: a Chrome Web Store listing, a local-model minter, auto-repair.
 
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Acknowledgements
+
+- [Pomerado](https://github.com/Pomerado/pomerado) — the mint, test, then replay-without-a-model loop and the test bar for publishing (MIT; ideas, see [`docs/prior-art.md`](docs/prior-art.md))
+- [WebMCP](https://github.com/webmachinelearning/webmcp) — the idea of tools that run inside your own signed-in browser tab (ideas only, no code)
+- [Playwright](https://playwright.dev) and the [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) — the browser engine and the protocol layer

@@ -27,3 +27,7 @@ docs/STATUS*.md
 
 # Local AI review reports
 .preflight/
+
+# About-image prompt (private) and derived social card
+docs/media/ABOUT-IMAGE.md
+docs/media/hero-glass.jpg
