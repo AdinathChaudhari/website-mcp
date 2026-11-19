@@ -15,7 +15,7 @@ Social preview: docs/media/hero-glass.jpg (1280x640, derived from docs/media/her
 ![MCP](https://img.shields.io/badge/MCP-stdio-informational)
 [![npm](https://img.shields.io/npm/v/website-mcp)](https://www.npmjs.com/package/website-mcp)
 
-<img src="docs/media/hero.png" width="720" alt="website-mcp: a browser window with a dotted path that becomes a small glowing tool piece">
+<img src="docs/media/hero-rounded.png" width="720" alt="website-mcp: a browser window with a dotted path that becomes a small glowing tool piece">
 
 You type `/website-mcp:mint <task> on <site>`. Claude explores the site, writes a script, proves it against test cases, gets it reviewed, and saves it as a tool. After that the tool is a plain file: it runs instantly, costs nothing, and gives the same answer shape every time.
 
