@@ -85,7 +85,7 @@ const X = "https://x.test";
 async function choose(v, opts) {
   const { c, db } = exploreChrome(opts); const d = dom();
   await render(c, d); await d.els.explore.onchange({ target: { value: v } });
-  return { db, d };
+  return { c, db, d };
 }
 test("explore choice: 1 hour and 1 day set a local expiry and clear the session flag", async () => {
   for (const [v, ms] of [["hour", 3600000], ["day", 86400000]]) {
@@ -107,10 +107,20 @@ test("explore choice: Off clears both areas for the origin", async () => {
   assert.equal(db.session.exploreSession[X], undefined);
 });
 test("explore choice: without session storage 'until the browser closes' stays off", async () => {
-  const { db, d } = await choose("session", { noSession: true, local: { [X]: Date.now() + 60000 } });
+  const { c, db, d } = await choose("session", { noSession: true, local: { [X]: Date.now() + 60000 } });
   assert.equal(db.local.explore[X], undefined);
-  await render(exploreChrome({ noSession: true }).c, d);
+  await render(c, d); // same chrome the choice wrote to
   assert.equal(d.els.explore.value, "off");
+  assert.equal(d.els.exploreNote.textContent, "off");
+});
+test("explore choice: a 1 day window still shows '1 day' in its last hour", async () => {
+  const { c, db, d } = await choose("day", {});
+  assert.equal(db.local.exploreMode[X], "day");
+  db.local.explore[X] = Date.now() + 30 * 60000;
+  await render(c, d);
+  assert.equal(d.els.explore.value, "day");
+  const r = await choose("off", { local: { [X]: Date.now() + 60000 } });
+  assert.equal(r.db.local.exploreMode[X], undefined);
 });
 test("explore note shows which option is active and when it ends", async () => {
   const note = async (o) => { const { c } = exploreChrome(o); const d = dom(); await render(c, d); return [d.els.explore.value, d.els.exploreNote.textContent]; };
