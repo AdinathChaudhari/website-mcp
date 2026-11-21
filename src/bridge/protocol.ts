@@ -33,7 +33,7 @@ export const BRIDGE_ERROR_CODES = [
   "NEEDS_APPROVAL",
   /** The signin.json marker was not found in the tab. */
   "SIGNED_OUT",
-  /** The popup's explore window for this site is closed (it turns itself off after 15 minutes). */
+  /** The popup's explore window for this site is closed (the user opens it in the popup for 1 hour, 1 day, or until the browser closes). */
   "EXPLORE_OFF",
   /** The page showed a captcha, a checkpoint or a block. The run stops at once and is never retried. */
   "CHALLENGE",

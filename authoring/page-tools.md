@@ -60,8 +60,8 @@ scrolls in human-paced, jittered steps (at most 50, pause 200 ms to 5 s) until n
 ## How you explore
 
 1. `page_tabs` lists the user's tabs (id, url, title, granted, explore). Ask the user to open the tab on the page
-   you need and, in the extension popup, to allow the site and switch on **Explore this site**. The window turns itself
-   off after 15 minutes. `page_snapshot`, `page_explore` and `page_capture` are refused while it is off.
+   you need and, in the extension popup, to allow the site and open the explore window (1 hour, 1 day, or until the browser closes). It
+   closes itself when that ends. `page_snapshot`, `page_explore` and `page_capture` are refused while it is off.
 2. `page_snapshot` for an outline, `page_explore` for small read-only probes. Results over 16 KiB are truncated.
 3. `page_capture(tabId, name)` saves the page's HTML as `captures/<n>.html` of your draft. Capture the normal state,
    an empty state if you can reach one, and (if there is a signin marker) a signed-out state. Captures hold the

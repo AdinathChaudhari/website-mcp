@@ -58,7 +58,7 @@ export async function requireExploreWindow(id: number): Promise<TabInfo> {
   if (!tab.explore) {
     throw new BridgeError(
       "EXPLORE_OFF",
-      `The explore window is closed for this site. Ask the user to open the website-mcp extension popup on that tab and switch on "Explore this site" (it turns itself off after 15 minutes), then retry.`,
+      `The explore window is closed for this site. Ask the user to open the website-mcp extension popup on that tab and choose a duration under "Let Claude explore this site" (1 hour, 1 day, or until the browser closes), then retry.`,
       { tabId: id, url: tab.url },
     );
   }

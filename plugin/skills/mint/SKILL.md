@@ -69,7 +69,7 @@ the open tab shows, `hardTarget: true` with `minIntervalSec` >= 60, stop on any 
 
 1. `guide` topic `page-tools`, then `core` and `testing`.
 2. `page_tabs`. If the site's tab is missing, not granted, or the explore window is off, ask the user to open the page,
-   click "Allow this site" and switch on "Explore this site" in the extension popup (it turns off after 15 minutes).
+   click "Allow this site" and open the explore window in the extension popup (1 hour, 1 day, or until the browser closes).
 3. `page_snapshot` and small `page_explore` probes (read-only) until the selectors and data shape are solid.
 4. `page_capture` the states you will test (normal, empty, signed-out if there is a marker). Never put a capture in a repo.
 5. Write tool.mjs (one default export `async ({ input, wm })`, no imports or closures, no network) and tool.json

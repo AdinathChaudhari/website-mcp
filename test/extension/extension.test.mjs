@@ -10,7 +10,7 @@ const O = "https://quotes.toscrape.com";
 const BASE = { toolName: "t", version: 1, source: "async ({input}) => input", urlPattern: "/*", origins: [O], world: "USER_SCRIPT" };
 const HASH = await runHash(BASE);
 const KEY = `t|1|${HASH}`;
-function mockChrome({ enabled, us = true, granted = [O], tabs = [], exec, store = {}, approve = true, strict = false, focused = true } = {}) {
+function mockChrome({ session, enabled, us = true, granted = [O], tabs = [], exec, store = {}, approve = true, strict = false, focused = true } = {}) {
   const calls = [];
   const data = { ...(enabled === undefined ? {} : { enabled }), approved: !approve ? {} : strict ? { [KEY]: {} } : new Proxy({}, { get: () => ({}) }), ...store };
   return {
@@ -354,4 +354,28 @@ test("explore, snapshot and capture do not run the model's code on a challenge p
     const r = await handleMessage(c, { type, id: "1", tabId: 1, code: "return 1", timeoutMs: 500 }, helpers, "0.1.0");
     assert.equal(r.error.code, "CHALLENGE", type);
   }
+});
+
+// ---- explore duration: local expiry (1 hour / 1 day) or session flag (until the browser closes) ----
+const withSession = (c, flags) => { c.storage.session = { get: async () => ({ exploreSession: flags }) }; return c; };
+const snap = (c) => msg(c, { type: "snapshot", tabId: 1 });
+test("exploreOpen: a day-long local expiry is open, an expired one is closed", async () => {
+  assert.equal((await snap(mockChrome({ tabs: [tab(1, "/")], store: exploreOn(86400000), exec: () => [{ result: { ok: true, value: "1" } }] }))).ok, true);
+  assert.equal((await snap(withSession(mockChrome({ tabs: [tab(1, "/")], store: exploreOn(-1) }), {}))).error.code, "EXPLORE_OFF");
+});
+test("exploreOpen: a session flag opens the window for that origin only", async () => {
+  const ok = withSession(mockChrome({ tabs: [tab(1, "/")], exec: () => [{ result: { ok: true, value: "1" } }] }), { [O]: true });
+  assert.equal((await snap(ok)).ok, true);
+  const other = withSession(mockChrome({ tabs: [tab(1, "/")] }), { "https://other.example": true });
+  assert.equal((await snap(other)).error.code, "EXPLORE_OFF");
+});
+test("exploreOpen: missing storage.session fails closed", async () => {
+  const c = mockChrome({ tabs: [tab(1, "/")] });
+  assert.equal(c.storage.session, undefined);
+  assert.equal((await snap(c)).error.code, "EXPLORE_OFF");
+  assert.equal(c.calls.length, 0);
+});
+test("EXPLORE_OFF message names the choices", async () => {
+  const r = await snap(mockChrome({ tabs: [tab(1, "/")] }));
+  assert.match(r.error.message, /1 hour, 1 day, or until the browser closes/);
 });

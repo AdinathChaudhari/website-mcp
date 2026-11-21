@@ -86,7 +86,7 @@ const fixedTools = [
   {
     name: "page_explore",
     description:
-      "Page tools: run JavaScript in an open tab of the user's own browser (a function body; `return` a JSON-serialisable result; `document` is the page's). Read-only exploration only. REFUSED unless the popup's explore window is open for that site (it turns itself off after 15 minutes). Result capped at 16 KiB.",
+      "Page tools: run JavaScript in an open tab of the user's own browser (a function body; `return` a JSON-serialisable result; `document` is the page's). Read-only exploration only. REFUSED unless the popup's explore window is open for that site (the user opens it in the popup for 1 hour, 1 day, or until the browser closes). Result capped at 16 KiB.",
     inputSchema: obj({ tabId: { type: "integer" }, code: { type: "string" } }, ["tabId", "code"]),
   },
   {
