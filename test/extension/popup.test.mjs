@@ -73,9 +73,9 @@ test("Revoke removes the approval", async () => {
 });
 
 // ---- explore duration choice ----
-function exploreChrome({ local = {}, session = {}, noSession = false } = {}) {
+function exploreChrome({ local = {}, session = {}, mode = {}, noSession = false } = {}) {
   const c = chromeMock({ url: "https://x.test/p" });
-  const db = { local: { explore: local }, session: { exploreSession: session } };
+  const db = { local: { explore: local, exploreMode: mode }, session: { exploreSession: session } };
   c.storage.local.get = async (k) => ({ ...db.local, ...(k ? {} : {}) });
   c.storage.local.set = async (o) => Object.assign(db.local, o);
   if (!noSession) c.storage.session = { get: async () => ({ ...db.session }), set: async (o) => Object.assign(db.session, o) };
@@ -119,8 +119,11 @@ test("explore choice: a 1 day window still shows '1 day' in its last hour", asyn
   db.local.explore[X] = Date.now() + 30 * 60000;
   await render(c, d);
   assert.equal(d.els.explore.value, "day");
-  const r = await choose("off", { local: { [X]: Date.now() + 60000 } });
-  assert.equal(r.db.local.exploreMode[X], undefined);
+  for (const v of ["off", "session"]) {
+    const r = await choose(v, { local: { [X]: Date.now() + 60000 }, mode: { [X]: "day", "https://other.test": "hour" } });
+    assert.equal(r.db.local.exploreMode[X], undefined, v);
+    assert.equal(r.db.local.exploreMode["https://other.test"], "hour", v);
+  }
 });
 test("explore note shows which option is active and when it ends", async () => {
   const note = async (o) => { const { c } = exploreChrome(o); const d = dom(); await render(c, d); return [d.els.explore.value, d.els.exploreNote.textContent]; };
