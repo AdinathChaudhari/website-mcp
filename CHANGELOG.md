@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+Explore window is now a choice in the popup: Off, 1 hour, 1 day, or until the browser closes (session storage, fails closed). Replaces the fixed 15-minute window.
+
 ## 0.1.0
 
 Phase 8 — release preparation: MIT licence, README, `docs/model-seam.md`, `docs/prior-art.md`, safety page on writes and site terms, `src/mint/minter.ts` (interfaces only), npm `files` allowlist.

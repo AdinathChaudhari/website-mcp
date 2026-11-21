@@ -26,7 +26,9 @@ export function composeCode(source, input, helpersText, signin, write) {
     `catch(e){return ch()||{ok:false,message:String((e&&e.message)||e)};}})()`;
 }
 
-export const EXPLORE_MS = 15 * 60 * 1000;
+export const EXPLORE_HOUR_MS = 60 * 60 * 1000;
+export const EXPLORE_DAY_MS = 24 * EXPLORE_HOUR_MS;
+export const EXPLORE_OFF = (o) => `The explore window for ${o} is closed; ask the user to open it in the popup (1 hour, 1 day, or until the browser closes)`;
 export const CAPS = { snapshot: 256 * 1024, explore: 256 * 1024, capture: 8 * 1024 * 1024 };
 export const approvalKey = (m, hash) => `${m.toolName}|${m.version ?? "draft"}|${hash}`;
 const canon = (v) => (Array.isArray(v) ? `[${v.map(canon)}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canon(v[k]))}}` : JSON.stringify(v ?? null));
@@ -39,10 +41,11 @@ export async function runHash(m, helpersText) {
   return sha(text);
 }
 const originOfUrl = (u) => { try { return new URL(u).origin; } catch { return null; } };
-/** Expiry is checked here, at use time; nothing else turns the window off. */
+/** Open = unexpired local expiry (1 hour / 1 day) or a session flag (until the browser closes). Checked at use time; no session storage = closed. */
 export async function exploreOpen(chrome, origin) {
   const { explore = {} } = await chrome.storage.local.get("explore");
-  return (explore[origin] ?? 0) > Date.now();
+  if ((explore[origin] ?? 0) > Date.now()) return true;
+  try { return (await chrome.storage.session.get("exploreSession")).exploreSession?.[origin] === true; } catch { return false; }
 }
 
 // Model-written outline of the page: roles, accessible names, trimmed text.
@@ -135,7 +138,7 @@ export async function handleExplore(chrome, msg, helpersText) {
   const origin = tab?.url && originOfUrl(tab.url);
   if (!origin || !/^https?:/.test(origin)) return err("NO_TAB", `No http(s) tab with id ${msg.tabId}`);
   if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) return err("SITE_NOT_GRANTED", `Click 'Allow this site' in the website-mcp popup on ${origin}`);
-  if (!(await exploreOpen(chrome, origin))) return err("EXPLORE_OFF", `The explore window for ${origin} is closed; open it in the popup (it lasts 15 minutes)`);
+  if (!(await exploreOpen(chrome, origin))) return err("EXPLORE_OFF", EXPLORE_OFF(origin));
   const body = msg.type === "snapshot" ? SNAPSHOT_JS : msg.type === "capture" ? `({url:location.href,title:document.title,html:document.documentElement.outerHTML})` : `(async()=>{${msg.code}\n})()`;
   // Same challenge guard as a run: nothing runs on a checkpoint page, and a result or error from one is replaced by CHALLENGE.
   const code = `(async()=>{const wm=${helpersText};const ch=()=>{try{const c=wm.challenge();return c?{ok:false,challenge:c}:null}catch(e){return null}};` +

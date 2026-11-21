@@ -10,7 +10,7 @@
 <div class="row"><span id="status">checking...</span></div>
 <label class="row"><span>Allow website-mcp to run tools</span><input type="checkbox" id="enabled"></label>
 <div class="row"><span id="origin"></span><button id="allow">Allow this site</button></div>
-<label class="row"><span>Allow Claude to explore this site for 15 min (<span id="exploreNote">closed</span>)</span><input type="checkbox" id="explore"></label>
+<label class="row"><span>Let Claude explore this site: <span id="exploreNote">off</span></span><select id="explore"><option value="off">Off</option><option value="hour">1 hour</option><option value="day">1 day</option><option value="session">Until the browser closes</option></select></label>
 <strong>Waiting for approval</strong>
 <ul id="pending"></ul>
 <strong>Approved tool versions</strong>
